@@ -15,7 +15,9 @@ import {
   Capability,
   NotFoundError,
   PermissionError,
+  RateLimitError,
   StorageError,
+  UnavailableError,
   basename,
   toBytes,
   type DriverOptions,
@@ -317,6 +319,12 @@ export class AzureBlobDriver extends BaseDriver<BlobServiceClient> {
     const status = azStatus(error);
     if (status === 404) return new NotFoundError(`No object found at "${path}"`);
     if (status === 409) return new AlreadyExistsError(`Object already exists at "${path}"`);
+    if (status === 429) {
+      return new RateLimitError(`Rate limited for "${path}"`, undefined, { cause: error });
+    }
+    if (status === 502 || status === 503 || status === 504) {
+      return new UnavailableError(`Service unavailable for "${path}"`, { cause: error });
+    }
     if (status === 403) {
       return new PermissionError(`Permission denied for "${path}"`, { cause: error });
     }

@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "paths": {
+      "@rocketbean/genera": ["../genera/src/index.ts"],
+      "@rocketbean/genera/conformance": ["../genera/src/conformance.ts"],
+      "@rocketbean/genera/*": ["../genera/src/*"]
+    }
+  },
+  "include": ["src", "test"],
+  "exclude": ["node_modules", "dist"]
+}

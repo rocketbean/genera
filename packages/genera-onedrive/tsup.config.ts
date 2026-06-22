@@ -8,11 +8,9 @@ export default defineConfig({
   sourcemap: true,
   treeshake: true,
   target: "es2022",
-  // Keep the AWS SDK (peer dependency) out of the bundle — the consumer provides it.
   external: [
-    "@aws-sdk/client-s3",
-    "@aws-sdk/lib-storage",
-    "@aws-sdk/s3-request-presigner",
+    "@microsoft/microsoft-graph-client",
+    "@microsoft/microsoft-graph-types",
     "@rocketbean/genera",
   ],
 });

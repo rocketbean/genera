@@ -6,10 +6,13 @@ Write your application against a single storage contract. Switching providers be
 config change, not a code change. Genera is **driver-based**, **fully typed**, and
 **isomorphic** — the core runs unchanged in the browser and in Node.js.
 
-> **Status:** Phase 0–1 scaffold. This package currently ships the core engine, the
-> escape-hatch design, the auth seam, and a reference `MemoryDriver`, all backed by a
-> conformance test kit. Cloud drivers (S3, GCS, Azure, Dropbox, OneDrive, Drive, Box) land
-> in later phases — see `storage-abstraction-build-plan.md`.
+This package ships the core contract, the `MemoryDriver` (isomorphic) and `FsDriver`
+(Node, via `@rocketbean/genera/node`), the conformance kit
+(`@rocketbean/genera/conformance`), the OAuth2 + PKCE auth layer, retry/observability
+helpers, and the `EncryptionDriver` / `transfer` utilities. Cloud providers ship as
+companion packages: `@rocketbean/genera-s3` (AWS + R2/Spaces/B2/Wasabi/MinIO/IDrive),
+`-gcs`, `-azure`, `-dropbox`, `-onedrive`, `-gdrive`, `-box`. See the repo's
+`docs/capability-matrix.md`.
 
 ## Install
 
@@ -77,7 +80,9 @@ visible, intentional signal that you're stepping outside the portable core.
 
 Every failure is a `StorageError` subclass with a stable `code` — match on the code, not the
 message: `NotFoundError` (`NOT_FOUND`), `AlreadyExistsError`, `InvalidPathError`,
-`AuthError`, `PermissionError`, `OperationNotSupportedError`, `DriverMismatchError`.
+`AuthError`, `PermissionError`, `RateLimitError` (`RATE_LIMITED`, with `retryAfterMs`),
+`UnavailableError` (`UNAVAILABLE`), `OperationNotSupportedError`, `DriverMismatchError`.
+The last two transient codes are what the built-in `withRetry` layer retries by default.
 
 ## Writing a driver
 

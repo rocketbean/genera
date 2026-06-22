@@ -6,6 +6,8 @@ export type StorageErrorCode =
   | "INVALID_PATH"
   | "AUTH"
   | "PERMISSION"
+  | "RATE_LIMITED"
+  | "UNAVAILABLE"
   | "DRIVER_MISMATCH"
   | "UNKNOWN";
 
@@ -54,6 +56,25 @@ export class PermissionError extends StorageError {
   constructor(message = "Permission denied", options?: ErrorOptions) {
     super(message, "PERMISSION", options);
     this.name = "PermissionError";
+  }
+}
+
+/** Provider rate limit hit (HTTP 429). `retryAfterMs` echoes the `Retry-After` header. */
+export class RateLimitError extends StorageError {
+  readonly retryAfterMs: number | undefined;
+
+  constructor(message = "Rate limited", retryAfterMs?: number, options?: ErrorOptions) {
+    super(message, "RATE_LIMITED", options);
+    this.name = "RateLimitError";
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+/** Transient provider unavailability (HTTP 502/503/504). Safe to retry with backoff. */
+export class UnavailableError extends StorageError {
+  constructor(message = "Service temporarily unavailable", options?: ErrorOptions) {
+    super(message, "UNAVAILABLE", options);
+    this.name = "UnavailableError";
   }
 }
 

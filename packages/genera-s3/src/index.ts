@@ -11,6 +11,7 @@ import {
   type _Object as S3Object,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { Upload } from "@aws-sdk/lib-storage";
 
 import {
   AlreadyExistsError,
@@ -19,7 +20,9 @@ import {
   Capability,
   NotFoundError,
   PermissionError,
+  RateLimitError,
   StorageError,
+  UnavailableError,
   basename,
   toBytes,
   type CredentialProvider,
@@ -91,10 +94,14 @@ function isNotFound(error: unknown): boolean {
 export class S3Driver extends BaseDriver<S3Client> {
   readonly capabilities: ReadonlySet<Capability> = new Set([
     Capability.SignedUrl,
+    Capability.Stream,
     Capability.Copy,
     Capability.Move,
     Capability.Stat,
   ]);
+
+  /** Bodies at or above this size (or any stream) go through multipart upload. */
+  private static readonly MULTIPART_THRESHOLD = 5 * 1024 * 1024;
   // The AWS SDK v3 is isomorphic; `Body.transformToByteArray()` works in both runtimes.
   readonly environments: ReadonlySet<Environment> = new Set<Environment>([
     "node",
@@ -140,17 +147,29 @@ export class S3Driver extends BaseDriver<S3Client> {
     if (opts?.overwrite === false && (await this.headKey(key)) !== undefined) {
       throw new AlreadyExistsError(`Object already exists at "${path}"`);
     }
+
+    // Streams upload via multipart without buffering the whole payload; the
+    // resulting size is unknown up front, so report it from a follow-up stat.
+    if (data instanceof ReadableStream) {
+      await this.multipartUpload(key, data, opts, path);
+      return this.stat(path);
+    }
+
     const body = await toBytes(data);
     try {
-      await this.client.send(
-        new PutObjectCommand({
-          Bucket: this.bucket,
-          Key: key,
-          Body: body,
-          ...(opts?.contentType !== undefined ? { ContentType: opts.contentType } : {}),
-          ...(opts?.metadata !== undefined ? { Metadata: opts.metadata } : {}),
-        }),
-      );
+      if (body.byteLength >= S3Driver.MULTIPART_THRESHOLD) {
+        await this.multipartUpload(key, body, opts, path);
+      } else {
+        await this.client.send(
+          new PutObjectCommand({
+            Bucket: this.bucket,
+            Key: key,
+            Body: body,
+            ...(opts?.contentType !== undefined ? { ContentType: opts.contentType } : {}),
+            ...(opts?.metadata !== undefined ? { Metadata: opts.metadata } : {}),
+          }),
+        );
+      }
     } catch (error) {
       throw this.mapError(error, path);
     }
@@ -163,6 +182,33 @@ export class S3Driver extends BaseDriver<S3Client> {
     };
     if (opts?.metadata !== undefined) entry.metadata = opts.metadata;
     return entry;
+  }
+
+  /**
+   * Multipart upload via `@aws-sdk/lib-storage` (`Capability.Stream`). Handles both
+   * `ReadableStream` bodies and large buffers, chunking automatically.
+   */
+  private async multipartUpload(
+    key: string,
+    body: Uint8Array | ReadableStream,
+    opts: PutOptions | undefined,
+    path: string,
+  ): Promise<void> {
+    try {
+      const upload = new Upload({
+        client: this.client,
+        params: {
+          Bucket: this.bucket,
+          Key: key,
+          Body: body,
+          ...(opts?.contentType !== undefined ? { ContentType: opts.contentType } : {}),
+          ...(opts?.metadata !== undefined ? { Metadata: opts.metadata } : {}),
+        },
+      });
+      await upload.done();
+    } catch (error) {
+      throw this.mapError(error, path);
+    }
   }
 
   async get(path: string): Promise<Uint8Array> {
@@ -324,6 +370,12 @@ export class S3Driver extends BaseDriver<S3Client> {
     if (isNotFound(error)) return new NotFoundError(`No object found at "${path}"`);
     const status = httpStatus(error);
     const name = errorName(error);
+    if (status === 429 || name === "SlowDown" || name === "TooManyRequests") {
+      return new RateLimitError(`Rate limited for "${path}"`, undefined, { cause: error });
+    }
+    if (status === 503 || status === 502 || status === 504 || name === "ServiceUnavailable") {
+      return new UnavailableError(`Service unavailable for "${path}"`, { cause: error });
+    }
     if (status === 403 || name === "AccessDenied") {
       return new PermissionError(`Permission denied for "${path}"`, { cause: error });
     }

@@ -1,7 +1,7 @@
 {
-  "name": "@rocketbean/genera-s3",
+  "name": "@rocketbean/genera-box",
   "version": "0.0.0",
-  "description": "S3-compatible storage driver for Genera — one driver for AWS S3, Cloudflare R2, DigitalOcean Spaces, Backblaze B2, Wasabi, MinIO, and IDrive e2.",
+  "description": "Box storage driver for Genera (ID-native, Node).",
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.cjs",
@@ -29,13 +29,7 @@
   },
   "keywords": [
     "storage",
-    "s3",
-    "aws",
-    "r2",
-    "minio",
-    "spaces",
-    "wasabi",
-    "backblaze",
+    "box",
     "genera",
     "driver"
   ],
@@ -44,15 +38,15 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@aws-sdk/client-s3": "^3",
-    "@aws-sdk/lib-storage": "^3",
-    "@aws-sdk/s3-request-presigner": "^3",
-    "@rocketbean/genera": "workspace:^"
+    "@rocketbean/genera": "workspace:^",
+    "box-node-sdk": ">=10"
+  },
+  "peerDependenciesMeta": {
+    "box-node-sdk": {
+      "optional": true
+    }
   },
   "devDependencies": {
-    "@aws-sdk/client-s3": "^3",
-    "@aws-sdk/lib-storage": "^3",
-    "@aws-sdk/s3-request-presigner": "^3",
     "@rocketbean/genera": "workspace:*",
     "@types/node": "^22",
     "tsup": "^8.5.1",

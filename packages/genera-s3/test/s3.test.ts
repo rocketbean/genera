@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { CreateBucketCommand, S3Client } from "@aws-sdk/client-s3";
 
-import { createStorage, staticCredentials } from "@rocketbean/genera";
+import { Capability, createStorage, staticCredentials } from "@rocketbean/genera";
 import { describeConformance } from "@rocketbean/genera/conformance";
 
 import { S3Driver, type S3DriverOptions } from "../src/index";
@@ -105,6 +105,33 @@ if (!ENDPOINT) {
       const url = await storage.getSignedUrl("signed.txt", { expiresIn: 120 });
       expect(url).toContain("signed.txt");
       expect(url).toContain("X-Amz-Signature");
+    });
+
+    it("round-trips a large buffer via multipart upload (Capability.Stream)", async () => {
+      const driver = makeDriver();
+      expect(driver.capabilities.has(Capability.Stream)).toBe(true);
+      // 6 MiB → above the 5 MiB threshold → goes through lib-storage's Upload.
+      const big = new Uint8Array(6 * 1024 * 1024);
+      for (let i = 0; i < big.length; i += 4093) big[i] = i % 256;
+      const entry = await driver.put("big.bin", big);
+      expect(entry.size).toBe(big.length);
+      const read = await driver.get("big.bin");
+      expect(read.length).toBe(big.length);
+      expect(read[4093]).toBe(big[4093]);
+    });
+
+    it("uploads from a ReadableStream", async () => {
+      const driver = makeDriver();
+      const payload = new TextEncoder().encode("streamed payload");
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(payload);
+          controller.close();
+        },
+      });
+      const entry = await driver.put("streamed.txt", stream);
+      expect(entry.size).toBe(payload.length);
+      expect(new TextDecoder().decode(await driver.get("streamed.txt"))).toBe("streamed payload");
     });
   });
 }

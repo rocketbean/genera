@@ -1,9 +1,15 @@
 export * from "./types";
 export * from "./errors";
 export * from "./path";
+export * from "./path-resolver";
 export * from "./bytes";
 export * from "./credentials";
 export * from "./oauth";
+export * from "./retry";
+export * from "./events";
 export * from "./driver";
+export * from "./wrapper";
+export * from "./encryption";
+export * from "./transfer";
 export * from "./manager";
 export { MemoryDriver, type StoredObject } from "./drivers/memory";
