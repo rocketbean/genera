@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      # Tier-1 conformance runs against local emulators (plan Phase 2).
+      # Without these, the driver suites skip; with them, every push/PR proves
+      # the "swap a driver, it still works" guarantee end-to-end.
+      - name: Start storage emulators
+        run: docker compose up -d
+
+      - name: Wait for emulators
+        run: |
+          wait_for() {
+            echo "waiting for $1..."
+            for i in $(seq 1 60); do
+              if eval "$2" >/dev/null 2>&1; then echo "ready: $1"; return 0; fi
+              sleep 2
+            done
+            echo "::error::timeout waiting for $1"; return 1
+          }
+          wait_for minio    'curl -sf http://localhost:9000/minio/health/live'
+          wait_for fake-gcs 'curl -sf "http://localhost:4443/storage/v1/b?project=test"'
+          wait_for azurite  'curl -s http://127.0.0.1:11000/devstoreaccount1'
+
+      - name: Test (core + Tier-1 conformance vs emulators)
+        env:
+          GENERA_S3_TEST_ENDPOINT: http://localhost:9000
+          GENERA_S3_TEST_ACCESS_KEY: minioadmin
+          GENERA_S3_TEST_SECRET_KEY: minioadmin
+          GENERA_GCS_TEST_ENDPOINT: http://localhost:4443
+          GENERA_AZURE_TEST_CONNECTION_STRING: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:11000/devstoreaccount1;"
+        run: pnpm test
+
+      - name: Stop storage emulators
+        if: always()
+        run: docker compose down -v

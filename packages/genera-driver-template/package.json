@@ -1,0 +1,41 @@
+{
+  "name": "@rocketbean/genera-driver-template",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Starter template for authoring a Genera storage driver. Copy, rename, implement.",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@rocketbean/genera": "workspace:^"
+  },
+  "devDependencies": {
+    "@rocketbean/genera": "workspace:*",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}
