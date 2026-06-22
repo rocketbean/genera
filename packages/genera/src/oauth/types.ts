@@ -23,6 +23,8 @@ export interface OAuthConfig {
   clientId: string;
   authorizationEndpoint: string;
   tokenEndpoint: string;
+  /** RFC 7009 revocation endpoint. Optional — `revoke()` clears locally without it. */
+  revocationEndpoint?: string;
   redirectUri: string;
   /** Default scopes for the authorization request. */
   scopes?: string[];

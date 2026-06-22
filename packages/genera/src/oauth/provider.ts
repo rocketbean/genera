@@ -1,6 +1,6 @@
 import { AuthError } from "../errors";
 import type { CredentialProvider } from "../credentials";
-import { requestToken, toTokenSet } from "./token-endpoint";
+import { requestToken, revokeToken, toTokenSet } from "./token-endpoint";
 import type { TokenStore } from "./token-store";
 import type { OAuthConfig, OAuthCredential, TokenSet } from "./types";
 
@@ -40,6 +40,26 @@ export class OAuthCredentialProvider implements CredentialProvider<OAuthCredenti
       return toCredential(tokens);
     }
     return toCredential(await this.refresh(tokens));
+  }
+
+  /**
+   * Sign out: revoke the tokens at the provider (RFC 7009, if a revocation
+   * endpoint is configured) and clear the local store. The store is always
+   * cleared — even if the network revocation fails — so local sign-out is
+   * reliable; a revocation failure still propagates to the caller.
+   */
+  async revoke(): Promise<void> {
+    const tokens = await this.store.get();
+    try {
+      if (tokens && this.config.revocationEndpoint) {
+        // Revoking the refresh token cascades to its access tokens at most providers.
+        const token = tokens.refreshToken ?? tokens.accessToken;
+        const hint = tokens.refreshToken ? "refresh_token" : "access_token";
+        await revokeToken(this.config.revocationEndpoint, token, hint, this.config);
+      }
+    } finally {
+      await this.store.clear();
+    }
   }
 
   /** Single-flight: concurrent callers share one in-flight refresh, not N. */

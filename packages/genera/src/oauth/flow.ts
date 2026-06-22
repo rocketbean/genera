@@ -1,3 +1,4 @@
+import { AuthError } from "../errors";
 import { deriveCodeChallenge, generateCodeVerifier, generateState } from "./pkce";
 import { requestToken, toTokenSet } from "./token-endpoint";
 import type { OAuthConfig, TokenSet } from "./types";
@@ -17,6 +18,33 @@ export interface CreateAuthorizationRequestOptions {
   state?: string;
   /** Override the config's default scopes for this request. */
   scopes?: string[];
+}
+
+/** The parameters an OAuth2 redirect callback carries. */
+export interface OAuthCallbackParams {
+  code?: string;
+  state?: string;
+  error?: string;
+  error_description?: string;
+}
+
+/** Accept a redirect URL, a query string, `URLSearchParams`, or a plain object. */
+function parseCallbackParams(
+  callback: string | URLSearchParams | OAuthCallbackParams,
+): URLSearchParams {
+  if (callback instanceof URLSearchParams) return callback;
+  if (typeof callback === "string") {
+    try {
+      return new URL(callback).searchParams;
+    } catch {
+      return new URLSearchParams(callback.startsWith("?") ? callback.slice(1) : callback);
+    }
+  }
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(callback)) {
+    if (value !== undefined) params.set(key, value);
+  }
+  return params;
 }
 
 /**
@@ -72,5 +100,34 @@ export class OAuthFlow {
     });
     if (this.config.clientSecret) body.set("client_secret", this.config.clientSecret);
     return toTokenSet(await requestToken(this.config.tokenEndpoint, body));
+  }
+
+  /**
+   * Handle the redirect back from the provider: surface any `error`, verify the
+   * CSRF `state` matches what `createAuthorizationRequest` returned, then exchange
+   * the code. Pass the saved `{ state, codeVerifier }` plus the callback — a full
+   * redirect URL, a query string, `URLSearchParams`, or a parsed object.
+   */
+  async handleCallback(
+    callback: string | URLSearchParams | OAuthCallbackParams,
+    saved: Pick<AuthorizationRequest, "state" | "codeVerifier">,
+  ): Promise<TokenSet> {
+    const params = parseCallbackParams(callback);
+
+    const error = params.get("error");
+    if (error) {
+      const description = params.get("error_description");
+      throw new AuthError(
+        `Authorization failed: ${error}${description ? ` — ${description}` : ""}`,
+      );
+    }
+    if (params.get("state") !== saved.state) {
+      throw new AuthError("OAuth state mismatch (possible CSRF) — aborting code exchange");
+    }
+    const code = params.get("code");
+    if (!code) {
+      throw new AuthError("Authorization response is missing the code parameter");
+    }
+    return this.exchangeCode(code, saved.codeVerifier);
   }
 }

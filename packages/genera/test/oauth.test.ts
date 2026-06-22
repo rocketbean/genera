@@ -8,6 +8,8 @@ import {
   generateCodeVerifier,
   generateState,
   type OAuthConfig,
+  type TokenSet,
+  type TokenStore,
 } from "../src/index";
 
 const config: OAuthConfig = {
@@ -29,6 +31,11 @@ function jsonResponse(body: unknown): Response {
 function fetchBody(fetchMock: ReturnType<typeof vi.fn>, call = 0): URLSearchParams {
   const init = fetchMock.mock.calls[call]![1] as RequestInit;
   return init.body as URLSearchParams;
+}
+
+/** The URL (first arg) of the Nth fetch call. */
+function fetchUrl(fetchMock: ReturnType<typeof vi.fn>, call = 0): string {
+  return fetchMock.mock.calls[call]![0] as string;
 }
 
 afterEach(() => {
@@ -193,5 +200,148 @@ describe("OAuthCredentialProvider", () => {
     });
     const provider = new OAuthCredentialProvider(store, config);
     await expect(provider.getCredential()).rejects.toMatchObject({ code: "AUTH" });
+  });
+});
+
+describe("OAuthFlow.handleCallback", () => {
+  const saved = { state: "st-123", codeVerifier: "ver-123" };
+
+  function stubExchange(): ReturnType<typeof vi.fn> {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ access_token: "at", refresh_token: "rt", expires_in: 3600 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("verifies state and exchanges the code (accepts a full redirect URL)", async () => {
+    const fetchMock = stubExchange();
+    const tokens = await new OAuthFlow(config).handleCallback(
+      "https://app.example.com/callback?code=the-code&state=st-123",
+      saved,
+    );
+    expect(tokens.accessToken).toBe("at");
+    expect(fetchBody(fetchMock).get("code")).toBe("the-code");
+    expect(fetchBody(fetchMock).get("code_verifier")).toBe("ver-123");
+  });
+
+  it("rejects a state mismatch (CSRF) without calling the token endpoint", async () => {
+    const fetchMock = stubExchange();
+    await expect(
+      new OAuthFlow(config).handleCallback({ code: "x", state: "WRONG" }, saved),
+    ).rejects.toMatchObject({ code: "AUTH" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces an error param returned by the provider", async () => {
+    await expect(
+      new OAuthFlow(config).handleCallback(
+        { error: "access_denied", error_description: "user cancelled", state: "st-123" },
+        saved,
+      ),
+    ).rejects.toMatchObject({ code: "AUTH" });
+  });
+
+  it("rejects a callback missing the code", async () => {
+    await expect(
+      new OAuthFlow(config).handleCallback({ state: "st-123" }, saved),
+    ).rejects.toMatchObject({ code: "AUTH" });
+  });
+
+  it("round-trips with createAuthorizationRequest's state + verifier", async () => {
+    const fetchMock = stubExchange();
+    const flow = new OAuthFlow(config);
+    const request = await flow.createAuthorizationRequest();
+    const tokens = await flow.handleCallback({ code: "c", state: request.state }, request);
+    expect(tokens.accessToken).toBe("at");
+    expect(fetchBody(fetchMock).get("code_verifier")).toBe(request.codeVerifier);
+  });
+});
+
+describe("OAuthCredentialProvider.revoke", () => {
+  const configWithRevoke: OAuthConfig = {
+    ...config,
+    revocationEndpoint: "https://auth.example.com/revoke",
+  };
+
+  it("revokes the refresh token and clears the store", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const store = new MemoryTokenStore({
+      accessToken: "at",
+      refreshToken: "rt-1",
+      expiresAt: Date.now() + 3_600_000,
+    });
+
+    await new OAuthCredentialProvider(store, configWithRevoke).revoke();
+
+    expect(fetchUrl(fetchMock)).toBe("https://auth.example.com/revoke");
+    const body = fetchBody(fetchMock);
+    expect(body.get("token")).toBe("rt-1");
+    expect(body.get("token_type_hint")).toBe("refresh_token");
+    expect(await store.get()).toBeUndefined();
+  });
+
+  it("clears the store locally when no revocation endpoint is configured", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const store = new MemoryTokenStore({
+      accessToken: "at",
+      refreshToken: "rt-1",
+      expiresAt: Date.now() + 1000,
+    });
+
+    await new OAuthCredentialProvider(store, config).revoke();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await store.get()).toBeUndefined();
+  });
+
+  it("still clears the store even if the revocation request fails", async () => {
+    const fetchMock = vi.fn(async () => new Response("nope", { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const store = new MemoryTokenStore({
+      accessToken: "at",
+      refreshToken: "rt-1",
+      expiresAt: Date.now() + 1000,
+    });
+    const provider = new OAuthCredentialProvider(store, configWithRevoke);
+
+    await expect(provider.revoke()).rejects.toMatchObject({ code: "AUTH" });
+    expect(await store.get()).toBeUndefined();
+  });
+});
+
+describe("TokenStore swappability", () => {
+  it("works with a custom TokenStore implementation", async () => {
+    // A minimal store backed by a closure variable — not MemoryTokenStore.
+    let saved: TokenSet | undefined = {
+      accessToken: "old",
+      refreshToken: "rt-1",
+      expiresAt: Date.now() - 1000,
+    };
+    let setCalls = 0;
+    const customStore: TokenStore = {
+      get: () => Promise.resolve(saved),
+      set: (tokens) => {
+        saved = tokens;
+        setCalls++;
+        return Promise.resolve();
+      },
+      clear: () => {
+        saved = undefined;
+        return Promise.resolve();
+      },
+    };
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ access_token: "at-new", refresh_token: "rt-2", expires_in: 3600 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const credential = await new OAuthCredentialProvider(customStore, config).getCredential();
+
+    expect(credential.accessToken).toBe("at-new");
+    expect(setCalls).toBe(1); // refresh persisted through the custom store
+    expect(saved?.refreshToken).toBe("rt-2"); // rotation landed in the custom store
   });
 });
