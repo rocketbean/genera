@@ -1,6 +1,6 @@
 {
   "name": "@rocketbean/genera-azure",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Azure Blob Storage driver for Genera (isomorphic — Node + browser).",
   "type": "module",
   "sideEffects": false,
@@ -25,7 +25,8 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "tsc --noEmit && tsup"
   },
   "keywords": [
     "storage",

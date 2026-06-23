@@ -1,6 +1,6 @@
 {
   "name": "@rocketbean/genera-s3",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "S3-compatible storage driver for Genera — one driver for AWS S3, Cloudflare R2, DigitalOcean Spaces, Backblaze B2, Wasabi, MinIO, and IDrive e2.",
   "type": "module",
   "sideEffects": false,
@@ -25,7 +25,8 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "tsc --noEmit && tsup"
   },
   "keywords": [
     "storage",

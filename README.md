@@ -37,7 +37,7 @@ for await (const entry of storage.list("users/42")) console.log(entry.path);
   - [Capabilities](#capabilities)
   - [The escape hatch](#the-escape-hatch)
 - [Core API](#core-api)
-  - [`createStorage`](#createstorage)
+  - `[createStorage](#createstorage)`
   - [Portable operations](#portable-operations) — `put` · `get` · `list` · `delete` · `exists`
   - [Capability-gated operations](#capability-gated-operations) — `copy` · `move` · `stat` · `getSignedUrl` · `getStream` · `createDirectory` · `deleteDirectory`
   - [Multiple disks (`StorageManager`)](#multiple-disks-storagemanager)
@@ -75,16 +75,16 @@ for await (const entry of storage.list("users/42")) console.log(entry.path);
 ## Why Genera
 
 - **Portable core.** Five operations — `put` / `get` / `list` / `delete` / `exists` —
-  behave identically across every provider, verified by a shared **conformance kit**.
+behave identically across every provider, verified by a shared **conformance kit**.
 - **Capabilities, not assumptions.** Richer operations (copy, move, stat, signed
-  URLs, directories, streaming) are *advertised* per driver and gated; calling one a
-  driver doesn't support throws a typed `OperationNotSupportedError`.
+URLs, directories, streaming) are *advertised* per driver and gated; calling one a
+driver doesn't support throws a typed `OperationNotSupportedError`.
 - **Isomorphic.** The core uses only web-standard primitives (no Node built-ins) and
-  passes its conformance kit in both Node and a real browser.
+passes its conformance kit in both Node and a real browser.
 - **Escape hatch.** Drop to the raw provider SDK any time via `disk.as(Driver).native`.
 - **Batteries included.** OAuth 2.0 + PKCE auth layer, retry/backoff with rate-limit
-  handling, observability hooks, AES-256-GCM encryption-at-rest, and a cross-provider
-  `transfer` utility.
+handling, observability hooks, AES-256-GCM encryption-at-rest, and a cross-provider
+`transfer` utility.
 
 ## Installation
 
@@ -138,10 +138,10 @@ const storage = createStorage(new S3Driver({ bucket, region, credentials }));
 ### Drivers and disks
 
 - A **driver** (`StorageDriver`) maps the portable contract onto one provider. You
-  rarely call a driver directly.
-- A **`Disk`** wraps a driver (`createStorage(driver)`), adds capability gating, and
-  optionally retries + events. This is what your app uses.
-- A **`StorageManager`** holds several named disks (`createManager(...)`).
+rarely call a driver directly.
+- A `**Disk`** wraps a driver (`createStorage(driver)`), adds capability gating, and
+optionally retries + events. This is what your app uses.
+- A `**StorageManager**` holds several named disks (`createManager(...)`).
 
 ### Paths
 
@@ -196,40 +196,46 @@ createStorage(driver: StorageDriver, options?: DiskOptions): Disk
 
 `DiskOptions`:
 
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `retry` | `boolean \| RetryOptions` | off | Retry transient failures. `true` = defaults; see [retries](#resilience-retries-and-rate-limits). |
-| `events` | `StorageEvents` | – | Observability hooks fired around each operation; see [events](#observability-events). |
+
+| Option   | Type                     | Default | Description                                                                                      |
+| -------- | ------------------------ | ------- | ------------------------------------------------------------------------------------------------ |
+| `retry`  | `boolean | RetryOptions` | off     | Retry transient failures. `true` = defaults; see [retries](#resilience-retries-and-rate-limits). |
+| `events` | `StorageEvents`          | –       | Observability hooks fired around each operation; see [events](#observability-events).            |
+
 
 ### Portable operations
 
 Every driver implements these and they behave identically everywhere.
 
-**`put(path, data, opts?): Promise<StorageEntry>`** — write an object.
+`**put(path, data, opts?): Promise<StorageEntry>**` — write an object.
 
-| Param | Type | Description |
-|---|---|---|
-| `path` | `string` | Canonical destination path. |
-| `data` | `PutData` | `string \| Uint8Array \| ArrayBuffer \| Blob \| ReadableStream`. |
-| `opts.contentType` | `string?` | MIME type stored with the object. |
-| `opts.metadata` | `Record<string,string>?` | Custom metadata (where the provider supports it). |
-| `opts.overwrite` | `boolean?` | When `false`, throws `AlreadyExistsError` instead of overwriting. Default `true`. |
+
+| Param              | Type                     | Description                                                                       |
+| ------------------ | ------------------------ | --------------------------------------------------------------------------------- |
+| `path`             | `string`                 | Canonical destination path.                                                       |
+| `data`             | `PutData`                | `string | Uint8Array | ArrayBuffer | Blob | ReadableStream`.                      |
+| `opts.contentType` | `string?`                | MIME type stored with the object.                                                 |
+| `opts.metadata`    | `Record<string,string>?` | Custom metadata (where the provider supports it).                                 |
+| `opts.overwrite`   | `boolean?`               | When `false`, throws `AlreadyExistsError` instead of overwriting. Default `true`. |
+
 
 ```ts
 await storage.put("report.csv", "a,b,c\n", { contentType: "text/csv" });
 await storage.put("once.txt", data, { overwrite: false }); // fails if it exists
 ```
 
-**`get(path): Promise<Uint8Array>`** — read an object's bytes. Throws
+`**get(path): Promise<Uint8Array>**` — read an object's bytes. Throws
 `NotFoundError` if missing.
 
-**`list(prefix?, opts?): AsyncIterable<StorageEntry>`** — list entries under a prefix.
+`**list(prefix?, opts?): AsyncIterable<StorageEntry>**` — list entries under a prefix.
 
-| Param | Type | Description |
-|---|---|---|
-| `prefix` | `string?` | Folder to list. Omit/`""` for the root. |
+
+| Param            | Type       | Description                                                                                                                  |
+| ---------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `prefix`         | `string?`  | Folder to list. Omit/`""` for the root.                                                                                      |
 | `opts.recursive` | `boolean?` | `false` (default) returns one level (files + synthesized `directory` entries); `true` returns every file beneath the prefix. |
-| `opts.limit` | `number?` | Cap the number of entries yielded. |
+| `opts.limit`     | `number?`  | Cap the number of entries yielded.                                                                                           |
+
 
 ```ts
 for await (const e of storage.list("docs", { recursive: true })) {
@@ -237,25 +243,27 @@ for await (const e of storage.list("docs", { recursive: true })) {
 }
 ```
 
-**`delete(path): Promise<void>`** — remove an object. **Idempotent** — deleting a
+`**delete(path): Promise<void>**` — remove an object. **Idempotent** — deleting a
 missing path is a no-op.
 
-**`exists(path): Promise<boolean>`** — whether an object exists.
+`**exists(path): Promise<boolean>`** — whether an object exists.
 
 ### Capability-gated operations
 
 Available only when the driver advertises the matching `Capability` (otherwise
 `OperationNotSupportedError`).
 
-| Method | Capability | Description |
-|---|---|---|
-| `copy(from, to)` | `Copy` | Copy an object; returns the new `StorageEntry`. |
-| `move(from, to)` | `Move` | Move/rename an object. |
-| `stat(path)` | `Stat` | Rich metadata (`size`, `modifiedAt`, `etag`, `metadata`). |
-| `getSignedUrl(path, opts?)` | `SignedUrl` | A time-limited URL. `opts.expiresIn` (seconds, default 900), `opts.action` (`"read"` \| `"write"`, default read). |
-| `getStream(path)` | `Stream` | Download as a `ReadableStream<Uint8Array>` without buffering. |
-| `createDirectory(path)` | `CreateDirectory` | Explicitly create a folder. |
-| `deleteDirectory(path)` | `DeleteDirectory` | Recursively delete a folder. |
+
+| Method                      | Capability        | Description                                                                                                      |
+| --------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `copy(from, to)`            | `Copy`            | Copy an object; returns the new `StorageEntry`.                                                                  |
+| `move(from, to)`            | `Move`            | Move/rename an object.                                                                                           |
+| `stat(path)`                | `Stat`            | Rich metadata (`size`, `modifiedAt`, `etag`, `metadata`).                                                        |
+| `getSignedUrl(path, opts?)` | `SignedUrl`       | A time-limited URL. `opts.expiresIn` (seconds, default 900), `opts.action` (`"read"` | `"write"`, default read). |
+| `getStream(path)`           | `Stream`          | Download as a `ReadableStream<Uint8Array>` without buffering.                                                    |
+| `createDirectory(path)`     | `CreateDirectory` | Explicitly create a folder.                                                                                      |
+| `deleteDirectory(path)`     | `DeleteDirectory` | Recursively delete a folder.                                                                                     |
+
 
 ```ts
 await storage.copy("a.txt", "b.txt");
@@ -313,17 +321,19 @@ to opaque ids via the cached `PathResolver`).
 
 ### Capability matrix
 
-| Driver | Package | Runtime | Addressing | SignedUrl | Stream | Copy | Move | Stat | CreateDir | DeleteDir |
-|---|---|---|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| Memory | `@rocketbean/genera` | node + browser | key | – | ✅ | ✅ | ✅ | ✅ | – | – |
-| Filesystem | `@rocketbean/genera/node` | node | key | – | – | ✅ | ✅ | ✅ | ✅ | ✅ |
-| S3 family | `@rocketbean/genera-s3` | node + browser | key | ✅ | ✅ | ✅ | ✅ | ✅ | – | – |
-| Google Cloud Storage | `@rocketbean/genera-gcs` | node | key | ✅ | ✅ | ✅ | ✅ | ✅ | – | – |
-| Azure Blob | `@rocketbean/genera-azure` | node + browser | key | ✅ | ✅ | ✅ | ✅ | ✅ | – | – |
-| Dropbox | `@rocketbean/genera-dropbox` | node + browser | path | ✅¹ | ✅² | ✅ | ✅ | ✅ | ✅ | ✅ |
-| OneDrive | `@rocketbean/genera-onedrive` | node + browser | path | ✅¹ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Google Drive | `@rocketbean/genera-gdrive` | node | id | – | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Box | `@rocketbean/genera-box` | node | id | – | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+| Driver               | Package                       | Runtime        | Addressing | SignedUrl | Stream | Copy | Move | Stat | CreateDir | DeleteDir |
+| -------------------- | ----------------------------- | -------------- | ---------- | --------- | ------ | ---- | ---- | ---- | --------- | --------- |
+| Memory               | `@rocketbean/genera`          | node + browser | key        | –         | ✅      | ✅    | ✅    | ✅    | –         | –         |
+| Filesystem           | `@rocketbean/genera/node`     | node           | key        | –         | –      | ✅    | ✅    | ✅    | ✅         | ✅         |
+| S3 family            | `@rocketbean/genera-s3`       | node + browser | key        | ✅         | ✅      | ✅    | ✅    | ✅    | –         | –         |
+| Google Cloud Storage | `@rocketbean/genera-gcs`      | node           | key        | ✅         | ✅      | ✅    | ✅    | ✅    | –         | –         |
+| Azure Blob           | `@rocketbean/genera-azure`    | node + browser | key        | ✅         | ✅      | ✅    | ✅    | ✅    | –         | –         |
+| Dropbox              | `@rocketbean/genera-dropbox`  | node + browser | path       | ✅¹        | ✅²     | ✅    | ✅    | ✅    | ✅         | ✅         |
+| OneDrive             | `@rocketbean/genera-onedrive` | node + browser | path       | ✅¹        | ✅      | ✅    | ✅    | ✅    | ✅         | ✅         |
+| Google Drive         | `@rocketbean/genera-gdrive`   | node           | id         | –         | ✅      | ✅    | ✅    | ✅    | ✅         | ✅         |
+| Box                  | `@rocketbean/genera-box`      | node           | id         | –         | ✅      | ✅    | ✅    | ✅    | ✅         | ✅         |
+
 
 ¹ Dropbox/OneDrive "signed URLs" are **sharing links**, not time-limited presigned
 URLs (`expiresIn` is ignored). ² Dropbox download is buffered by its SDK, so
@@ -350,10 +360,12 @@ import { createStorage } from "@rocketbean/genera";
 const storage = createStorage(new FsDriver({ baseDir: "./storage" }));
 ```
 
-| Option | Type | Required | Description |
-|---|---|:-:|---|
-| `baseDir` | `string` | ✅ | Directory on disk that backs this driver (absolute, or resolved against cwd). |
-| `root` | `string` | – | Extra path prefix scoped under `baseDir`. |
+
+| Option    | Type     | Required | Description                                                                   |
+| --------- | -------- | -------- | ----------------------------------------------------------------------------- |
+| `baseDir` | `string` | ✅        | Directory on disk that backs this driver (absolute, or resolved against cwd). |
+| `root`    | `string` | –        | Extra path prefix scoped under `baseDir`.                                     |
+
 
 ### S3 and S3-compatible
 
@@ -373,27 +385,31 @@ const storage = createStorage(
 );
 ```
 
-| Option | Type | Required | Description |
-|---|---|:-:|---|
-| `bucket` | `string` | ✅ | The bucket every operation targets. |
-| `region` | `string?` | – | AWS region; `"auto"` for R2; any value the endpoint accepts otherwise. |
-| `endpoint` | `string?` | – | Omit for AWS; **set** for every S3-compatible provider. |
-| `forcePathStyle` | `boolean?` | – | Path-style addressing. Required by MinIO/R2/B2/Wasabi/IDrive. |
-| `credentials` | `CredentialProvider<S3Credentials>?` | – | Access keys via the auth seam. `S3Credentials = { accessKeyId, secretAccessKey, sessionToken? }`. |
-| `client` | `S3Client?` | – | Bring your own configured client (overrides the above). |
-| `root` | `string?` | – | Path prefix for multi-tenant scoping. |
+
+| Option           | Type                                 | Required | Description                                                                                       |
+| ---------------- | ------------------------------------ | -------- | ------------------------------------------------------------------------------------------------- |
+| `bucket`         | `string`                             | ✅        | The bucket every operation targets.                                                               |
+| `region`         | `string?`                            | –        | AWS region; `"auto"` for R2; any value the endpoint accepts otherwise.                            |
+| `endpoint`       | `string?`                            | –        | Omit for AWS; **set** for every S3-compatible provider.                                           |
+| `forcePathStyle` | `boolean?`                           | –        | Path-style addressing. Required by MinIO/R2/B2/Wasabi/IDrive.                                     |
+| `credentials`    | `CredentialProvider<S3Credentials>?` | –        | Access keys via the auth seam. `S3Credentials = { accessKeyId, secretAccessKey, sessionToken? }`. |
+| `client`         | `S3Client?`                          | –        | Bring your own configured client (overrides the above).                                           |
+| `root`           | `string?`                            | –        | Path prefix for multi-tenant scoping.                                                             |
+
 
 Per-provider config:
 
-| Provider | `endpoint` | `region` | `forcePathStyle` |
-|---|---|---|:-:|
-| AWS S3 | (omit) | real region | false |
-| Cloudflare R2 | `https://<account>.r2.cloudflarestorage.com` | `auto` | true |
-| DigitalOcean Spaces | `https://<region>.digitaloceanspaces.com` | region | either |
-| Backblaze B2 | `https://s3.<region>.backblazeb2.com` | region | true |
-| Wasabi | `https://s3.<region>.wasabisys.com` | region | true |
-| MinIO | `http://localhost:9000` | `us-east-1` | true |
-| IDrive e2 | `https://<region>.idrivee2-XX.com` | region | true |
+
+| Provider            | `endpoint`                                   | `region`    | `forcePathStyle` |
+| ------------------- | -------------------------------------------- | ----------- | ---------------- |
+| AWS S3              | (omit)                                       | real region | false            |
+| Cloudflare R2       | `https://<account>.r2.cloudflarestorage.com` | `auto`      | true             |
+| DigitalOcean Spaces | `https://<region>.digitaloceanspaces.com`    | region      | either           |
+| Backblaze B2        | `https://s3.<region>.backblazeb2.com`        | region      | true             |
+| Wasabi              | `https://s3.<region>.wasabisys.com`          | region      | true             |
+| MinIO               | `http://localhost:9000`                      | `us-east-1` | true             |
+| IDrive e2           | `https://<region>.idrivee2-XX.com`           | region      | true             |
+
 
 ```ts
 // Cloudflare R2
@@ -430,15 +446,17 @@ new GcsDriver({
 });
 ```
 
-| Option | Type | Required | Description |
-|---|---|:-:|---|
-| `bucket` | `string` | ✅ | Target bucket. |
-| `projectId` | `string?` | – | GCP project id (optional when ADC provides it). |
-| `apiEndpoint` | `string?` | – | Custom endpoint (e.g. a fake-gcs-server URL for tests). |
-| `credentials` | `{ client_email, private_key }?` | – | Service-account key (else ADC is used). |
-| `keyFilename` | `string?` | – | Path to a service-account JSON file. |
-| `storage` | `Storage?` | – | Bring your own configured `Storage` client. |
-| `root` | `string?` | – | Path prefix. |
+
+| Option        | Type                             | Required | Description                                             |
+| ------------- | -------------------------------- | -------- | ------------------------------------------------------- |
+| `bucket`      | `string`                         | ✅        | Target bucket.                                          |
+| `projectId`   | `string?`                        | –        | GCP project id (optional when ADC provides it).         |
+| `apiEndpoint` | `string?`                        | –        | Custom endpoint (e.g. a fake-gcs-server URL for tests). |
+| `credentials` | `{ client_email, private_key }?` | –        | Service-account key (else ADC is used).                 |
+| `keyFilename` | `string?`                        | –        | Path to a service-account JSON file.                    |
+| `storage`     | `Storage?`                       | –        | Bring your own configured `Storage` client.             |
+| `root`        | `string?`                        | –        | Path prefix.                                            |
+
 
 Capabilities: `SignedUrl`, `Stream`, `Copy`, `Move`, `Stat`.
 
@@ -453,14 +471,16 @@ const storage = createStorage(
 );
 ```
 
-| Option | Type | Required | Description |
-|---|---|:-:|---|
-| `container` | `string` | ✅ | The blob container every operation targets. |
-| `connectionString` | `string?` | –¹ | Connection string (Node; simplest shared-key path). |
-| `account` + `accountKey` | `string?` | –¹ | Shared-key auth (Node — never ship the key to a browser). |
-| `sasUrl` | `string?` | –¹ | A service SAS URL — the browser-safe path (scoped, no account key). |
-| `serviceClient` | `BlobServiceClient?` | –¹ | Bring your own configured client. |
-| `root` | `string?` | – | Path prefix. |
+
+| Option                   | Type                 | Required | Description                                                         |
+| ------------------------ | -------------------- | -------- | ------------------------------------------------------------------- |
+| `container`              | `string`             | ✅        | The blob container every operation targets.                         |
+| `connectionString`       | `string?`            | –¹       | Connection string (Node; simplest shared-key path).                 |
+| `account` + `accountKey` | `string?`            | –¹       | Shared-key auth (Node — never ship the key to a browser).           |
+| `sasUrl`                 | `string?`            | –¹       | A service SAS URL — the browser-safe path (scoped, no account key). |
+| `serviceClient`          | `BlobServiceClient?` | –¹       | Bring your own configured client.                                   |
+| `root`                   | `string?`            | –        | Path prefix.                                                        |
+
 
 ¹ Provide exactly one auth source: `connectionString`, `account`+`accountKey`,
 `sasUrl`, or `serviceClient`.
@@ -480,12 +500,14 @@ const storage = createStorage(new DropboxDriver({ credentials: oauthProvider }))
 new DropboxDriver({ accessToken: "…" });
 ```
 
-| Option | Type | Required | Description |
-|---|---|:-:|---|
-| `credentials` | `CredentialProvider<OAuthCredential>?` | –¹ | OAuth provider yielding a fresh token per request. |
-| `accessToken` | `string?` | –¹ | A static token (expires; prefer `credentials`). |
-| `client` | `Dropbox?` | –¹ | Bring your own SDK client. |
-| `root` | `string?` | – | Path prefix. |
+
+| Option        | Type                                   | Required | Description                                        |
+| ------------- | -------------------------------------- | -------- | -------------------------------------------------- |
+| `credentials` | `CredentialProvider<OAuthCredential>?` | –¹       | OAuth provider yielding a fresh token per request. |
+| `accessToken` | `string?`                              | –¹       | A static token (expires; prefer `credentials`).    |
+| `client`      | `Dropbox?`                             | –¹       | Bring your own SDK client.                         |
+| `root`        | `string?`                              | –        | Path prefix.                                       |
+
 
 ¹ Provide one of `credentials`, `accessToken`, or `client`.
 
@@ -504,12 +526,14 @@ import { createStorage } from "@rocketbean/genera";
 const storage = createStorage(new OneDriveDriver({ credentials: oauthProvider }));
 ```
 
-| Option | Type | Required | Description |
-|---|---|:-:|---|
-| `credentials` | `CredentialProvider<OAuthCredential>?` | –¹ | OAuth provider. |
-| `accessToken` | `string?` | –¹ | Static token. |
-| `client` | `Client?` | –¹ | Bring your own Graph client. |
-| `root` | `string?` | – | Path prefix. |
+
+| Option        | Type                                   | Required | Description                  |
+| ------------- | -------------------------------------- | -------- | ---------------------------- |
+| `credentials` | `CredentialProvider<OAuthCredential>?` | –¹       | OAuth provider.              |
+| `accessToken` | `string?`                              | –¹       | Static token.                |
+| `client`      | `Client?`                              | –¹       | Bring your own Graph client. |
+| `root`        | `string?`                              | –        | Path prefix.                 |
+
 
 ¹ Provide one of `credentials`, `accessToken`, or `client`. Scopes: `Files.ReadWrite`
 (+ `offline_access` for refresh tokens).
@@ -534,15 +558,17 @@ auth.setCredentials({ refresh_token });
 const storage = createStorage(new GoogleDriveDriver({ auth }));
 ```
 
-| Option | Type | Required | Description |
-|---|---|:-:|---|
-| `auth` | googleapis auth client | –¹ | e.g. `OAuth2Client`; the driver builds the Drive client from it. |
-| `drive` | `drive_v3.Drive?` | –¹ | A fully-configured Drive client (instead of `auth`). |
-| `credentials` | `CredentialProvider<OAuthCredential>?` | – | Pushes a fresh token onto `auth` before each request. |
-| `driveId` | `string?` | – | Shared (Team) drive id; adds the all-drives params to every call. |
-| `rootFolderId` | `string?` | – | Scope every path under this folder id instead of `"root"`. |
-| `onAmbiguous` | `"first" \| "error"` | – | Same-name-sibling policy (Drive allows duplicates). Default `"first"`. |
-| `root` | `string?` | – | Path prefix. |
+
+| Option         | Type                                   | Required | Description                                                            |
+| -------------- | -------------------------------------- | -------- | ---------------------------------------------------------------------- |
+| `auth`         | googleapis auth client                 | –¹       | e.g. `OAuth2Client`; the driver builds the Drive client from it.       |
+| `drive`        | `drive_v3.Drive?`                      | –¹       | A fully-configured Drive client (instead of `auth`).                   |
+| `credentials`  | `CredentialProvider<OAuthCredential>?` | –        | Pushes a fresh token onto `auth` before each request.                  |
+| `driveId`      | `string?`                              | –        | Shared (Team) drive id; adds the all-drives params to every call.      |
+| `rootFolderId` | `string?`                              | –        | Scope every path under this folder id instead of `"root"`.             |
+| `onAmbiguous`  | `"first" | "error"`                    | –        | Same-name-sibling policy (Drive allows duplicates). Default `"first"`. |
+| `root`         | `string?`                              | –        | Path prefix.                                                           |
+
 
 ¹ Provide `auth` or `drive`. Scope: `https://www.googleapis.com/auth/drive`.
 
@@ -563,12 +589,14 @@ const client = new BoxClient({ auth: new BoxDeveloperTokenAuth({ token }) });
 const storage = createStorage(new BoxDriver({ client }));
 ```
 
-| Option | Type | Required | Description |
-|---|---|:-:|---|
-| `client` | `BoxClient` | ✅ | A configured Box client (you choose the auth mode: Developer Token / OAuth / JWT / CCG). |
-| `rootFolderId` | `string?` | – | Root folder id. Defaults to Box's account root, `"0"`. |
-| `onAmbiguous` | `"first" \| "error"` | – | Same-name-sibling policy. Default `"first"`. |
-| `root` | `string?` | – | Path prefix. |
+
+| Option         | Type                | Required | Description                                                                              |
+| -------------- | ------------------- | -------- | ---------------------------------------------------------------------------------------- |
+| `client`       | `BoxClient`         | ✅        | A configured Box client (you choose the auth mode: Developer Token / OAuth / JWT / CCG). |
+| `rootFolderId` | `string?`           | –        | Root folder id. Defaults to Box's account root, `"0"`.                                   |
+| `onAmbiguous`  | `"first" | "error"` | –        | Same-name-sibling policy. Default `"first"`.                                             |
+| `root`         | `string?`           | –        | Path prefix.                                                                             |
+
 
 Capabilities: `Stream`, `Copy`, `Move`, `Stat`, `CreateDirectory`, `DeleteDirectory`.
 
@@ -597,11 +625,11 @@ new S3Driver({ bucket, region, credentials });
 
 For consumer drives (Dropbox, OneDrive, Google Drive, Box). Three decoupled pieces:
 
-- **`OAuthFlow`** — the interactive authorization-code↔token exchange.
-- **`OAuthCredentialProvider`** — `getCredential()` that returns a valid access
-  token, refreshing transparently (expiry skew, refresh-token rotation,
-  single-flight refresh-race lock).
-- **`TokenStore`** — pluggable persistence (`MemoryTokenStore` by default).
+- `**OAuthFlow**` — the interactive authorization-code↔token exchange.
+- `**OAuthCredentialProvider**` — `getCredential()` that returns a valid access
+token, refreshing transparently (expiry skew, refresh-token rotation,
+single-flight refresh-race lock).
+- `**TokenStore**` — pluggable persistence (`MemoryTokenStore` by default).
 
 ```ts
 import {
@@ -671,14 +699,16 @@ const storage = createStorage(driver, {
 
 `RetryOptions`:
 
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `maxAttempts` | `number` | 3 | Total attempts including the first. |
-| `baseDelayMs` | `number` | 100 | Base backoff, doubled each attempt. |
-| `maxDelayMs` | `number` | 5000 | Backoff ceiling. |
-| `jitter` | `boolean` | true | Apply ±50% randomization to computed delays. |
-| `isRetryable` | `(error) => boolean` | rate-limit / unavailable / network | Decide what to retry. |
-| `onRetry` | `(info) => void` | – | Called before each backoff wait. |
+
+| Option        | Type                 | Default                            | Description                                  |
+| ------------- | -------------------- | ---------------------------------- | -------------------------------------------- |
+| `maxAttempts` | `number`             | 3                                  | Total attempts including the first.          |
+| `baseDelayMs` | `number`             | 100                                | Base backoff, doubled each attempt.          |
+| `maxDelayMs`  | `number`             | 5000                               | Backoff ceiling.                             |
+| `jitter`      | `boolean`            | true                               | Apply ±50% randomization to computed delays. |
+| `isRetryable` | `(error) => boolean` | rate-limit / unavailable / network | Decide what to retry.                        |
+| `onRetry`     | `(info) => void`     | –                                  | Called before each backoff wait.             |
+
 
 Drivers map provider errors to `RateLimitError` (429, with `retryAfterMs`) and
 `UnavailableError` (502/503/504), which the retry layer retries by default. The
@@ -773,17 +803,19 @@ class LoggingDriver extends WrapperDriver {
 Every failure is a `StorageError` subclass with a stable `code` — match on the code,
 not the message.
 
-| Class | `code` | When |
-|---|---|---|
-| `NotFoundError` | `NOT_FOUND` | object/path missing |
-| `AlreadyExistsError` | `ALREADY_EXISTS` | `overwrite: false` hit an existing object / 409 |
-| `InvalidPathError` | `INVALID_PATH` | bad path (`..`, null bytes) |
-| `AuthError` | `AUTH` | authentication failed (401) |
-| `PermissionError` | `PERMISSION` | access denied (403) |
-| `RateLimitError` | `RATE_LIMITED` | 429 (carries `retryAfterMs`) |
-| `UnavailableError` | `UNAVAILABLE` | transient 502/503/504 |
+
+| Class                        | `code`                    | When                                             |
+| ---------------------------- | ------------------------- | ------------------------------------------------ |
+| `NotFoundError`              | `NOT_FOUND`               | object/path missing                              |
+| `AlreadyExistsError`         | `ALREADY_EXISTS`          | `overwrite: false` hit an existing object / 409  |
+| `InvalidPathError`           | `INVALID_PATH`            | bad path (`..`, null bytes)                      |
+| `AuthError`                  | `AUTH`                    | authentication failed (401)                      |
+| `PermissionError`            | `PERMISSION`              | access denied (403)                              |
+| `RateLimitError`             | `RATE_LIMITED`            | 429 (carries `retryAfterMs`)                     |
+| `UnavailableError`           | `UNAVAILABLE`             | transient 502/503/504                            |
 | `OperationNotSupportedError` | `OPERATION_NOT_SUPPORTED` | capability not advertised (carries `capability`) |
-| `DriverMismatchError` | `DRIVER_MISMATCH` | `disk.as(WrongDriver)` |
+| `DriverMismatchError`        | `DRIVER_MISMATCH`         | `disk.as(WrongDriver)`                           |
+
 
 ```ts
 import { NotFoundError } from "@rocketbean/genera";
@@ -839,16 +871,18 @@ corepack pnpm --filter @rocketbean/genera test:browser   # in-browser conformanc
 
 ## Packages
 
-| Package | Subpath exports | Description |
-|---|---|---|
-| `@rocketbean/genera` | `.`, `/node`, `/conformance` | Core contract, Memory + FS drivers, conformance kit, OAuth, retry/events, wrappers, transfer |
-| `@rocketbean/genera-s3` | `.` | AWS S3 + R2 / Spaces / B2 / Wasabi / MinIO / IDrive e2 |
-| `@rocketbean/genera-gcs` | `.` | Google Cloud Storage (Node) |
-| `@rocketbean/genera-azure` | `.` | Azure Blob Storage |
-| `@rocketbean/genera-dropbox` | `.` | Dropbox |
-| `@rocketbean/genera-onedrive` | `.` | OneDrive (Microsoft Graph) |
-| `@rocketbean/genera-gdrive` | `.` | Google Drive (Node) |
-| `@rocketbean/genera-box` | `.` | Box (Node) |
+
+| Package                       | Subpath exports              | Description                                                                                  |
+| ----------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------- |
+| `@rocketbean/genera`          | `.`, `/node`, `/conformance` | Core contract, Memory + FS drivers, conformance kit, OAuth, retry/events, wrappers, transfer |
+| `@rocketbean/genera-s3`       | `.`                          | AWS S3 + R2 / Spaces / B2 / Wasabi / MinIO / IDrive e2                                       |
+| `@rocketbean/genera-gcs`      | `.`                          | Google Cloud Storage (Node)                                                                  |
+| `@rocketbean/genera-azure`    | `.`                          | Azure Blob Storage                                                                           |
+| `@rocketbean/genera-dropbox`  | `.`                          | Dropbox                                                                                      |
+| `@rocketbean/genera-onedrive` | `.`                          | OneDrive (Microsoft Graph)                                                                   |
+| `@rocketbean/genera-gdrive`   | `.`                          | Google Drive (Node)                                                                          |
+| `@rocketbean/genera-box`      | `.`                          | Box (Node)                                                                                   |
+
 
 ## Development
 

@@ -1,0 +1,50 @@
+name: Release
+
+# On every push to main, the changesets action either opens/updates a
+# "Version Packages" PR (when changesets are pending) or — once that PR is merged
+# and versions are bumped — publishes the changed packages to npm.
+on:
+  push:
+    branches: [main]
+
+# Avoid overlapping release runs.
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write # create the version PR, tags, and GitHub releases
+  pull-requests: write # open/update the "Version Packages" PR
+  id-token: write # npm provenance via OIDC
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+
+      - run: pnpm install --frozen-lockfile
+
+      # pnpm reads the auth token from .npmrc; append it (ephemeral, CI-only).
+      - name: Authenticate to npm
+        run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> .npmrc
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create release PR or publish
+        uses: changesets/action@v1
+        with:
+          version: pnpm changeset version
+          publish: pnpm release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Enables npm provenance for CI publishes only (local publishes stay unaffected).
+          NPM_CONFIG_PROVENANCE: "true"
