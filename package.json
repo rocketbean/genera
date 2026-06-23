@@ -3,6 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "description": "Monorepo for @rocketbean/genera — one API for every cloud storage provider.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rocketbean/genera.git"
+  },
+  "homepage": "https://github.com/rocketbean/genera#readme",
+  "bugs": {
+    "url": "https://github.com/rocketbean/genera/issues"
+  },
   "packageManager": "pnpm@11.8.0",
   "engines": {
     "node": ">=18"
@@ -13,8 +21,9 @@
     "format:check": "prettier --check \"packages/**/*.{ts,json}\"",
     "typecheck": "pnpm -r typecheck",
     "build": "pnpm -r build",
+    "check:docs": "node scripts/check-readme-snippets.mjs",
     "test": "pnpm -r test",
-    "ci": "pnpm lint && pnpm typecheck && pnpm build && pnpm test",
+    "ci": "pnpm lint && pnpm typecheck && pnpm build && pnpm check:docs && pnpm test",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "pnpm -r build && pnpm -r publish"

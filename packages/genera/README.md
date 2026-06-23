@@ -66,6 +66,8 @@ The abstraction is never a cage. Drop to the concrete driver when you need a
 provider-specific feature:
 
 ```ts
+import { createStorage, MemoryDriver } from "@rocketbean/genera";
+
 const disk = createStorage(new MemoryDriver());
 
 const mem = disk.as(MemoryDriver); // runtime-checked narrowing → fully typed driver
@@ -89,10 +91,10 @@ The last two transient codes are what the built-in `withRetry` layer retries by 
 Extend `BaseDriver` (which provides root-scoping and capability helpers), implement the five
 core methods plus the escape-hatch members, and declare what you support:
 
-```ts
+```ts skip
 import { BaseDriver, Capability, type Environment } from "@rocketbean/genera";
 
-class MyDriver extends BaseDriver</* NativeClientType */> {
+class MyDriver extends BaseDriver<MyNativeClient> {
   readonly capabilities = new Set([Capability.SignedUrl, Capability.Copy]);
   readonly environments = new Set<Environment>(["node"]); // e.g. Node-only SDK
 
@@ -100,16 +102,17 @@ class MyDriver extends BaseDriver</* NativeClientType */> {
 }
 ```
 
-Then **certify it** against the shared conformance kit (`test/conformance.ts`):
+Then **certify it** against the shared conformance kit, published as the
+`@rocketbean/genera/conformance` subpath export:
 
-```ts
-import { describeConformance } from "./test/conformance";
+```ts skip
+import { describeConformance } from "@rocketbean/genera/conformance";
 
 describeConformance("MyDriver", () => new MyDriver());
 ```
 
-Passing the kit is what guarantees the swap-and-it-works promise. (The kit will ship as a
-published subpath export so third-party drivers can self-certify.)
+Passing the kit is what guarantees the swap-and-it-works promise — third-party drivers
+import the same subpath to self-certify.
 
 ## Scripts
 

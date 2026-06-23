@@ -7,18 +7,21 @@ Storage, Azure Blob, Dropbox, OneDrive, Google Drive, Box — or your own driver
 by changing **configuration, not code**.
 
 ```ts
-import { createStorage } from "@rocketbean/genera";
+import { createStorage, staticCredentials } from "@rocketbean/genera";
 import { S3Driver } from "@rocketbean/genera-s3";
-import { staticCredentials } from "@rocketbean/genera";
 
 const storage = createStorage(
   new S3Driver({
     bucket: "my-bucket",
     region: "us-east-1",
-    credentials: staticCredentials({ accessKeyId, secretAccessKey }),
+    credentials: staticCredentials({
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+    }),
   }),
 );
 
+const bytes = new Uint8Array([/* your file bytes */]);
 await storage.put("users/42/avatar.png", bytes, { contentType: "image/png" });
 const data = await storage.get("users/42/avatar.png");
 for await (const entry of storage.list("users/42")) console.log(entry.path);
@@ -130,7 +133,18 @@ Switch providers by swapping the driver — every call above is unchanged:
 
 ```ts
 import { S3Driver } from "@rocketbean/genera-s3";
-const storage = createStorage(new S3Driver({ bucket, region, credentials }));
+import { createStorage, staticCredentials } from "@rocketbean/genera";
+
+const storage = createStorage(
+  new S3Driver({
+    bucket: "my-bucket",
+    region: "us-east-1",
+    credentials: staticCredentials({
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+    }),
+  }),
+);
 ```
 
 ## Core concepts
@@ -153,6 +167,8 @@ Every driver accepts a `root` option that scopes all paths under a prefix — us
 for multi-tenant isolation:
 
 ```ts
+import { MemoryDriver } from "@rocketbean/genera";
+
 new MemoryDriver({ root: "tenant-123" }); // put("a.txt") lands at tenant-123/a.txt natively
 ```
 
@@ -190,7 +206,7 @@ storage.unwrap();                 // the underlying StorageDriver instance
 
 ### `createStorage`
 
-```ts
+```ts skip
 createStorage(driver: StorageDriver, options?: DiskOptions): Disk
 ```
 
@@ -221,7 +237,7 @@ Every driver implements these and they behave identically everywhere.
 
 ```ts
 await storage.put("report.csv", "a,b,c\n", { contentType: "text/csv" });
-await storage.put("once.txt", data, { overwrite: false }); // fails if it exists
+await storage.put("once.txt", "v", { overwrite: false }); // fails if it exists
 ```
 
 `**get(path): Promise<Uint8Array>**` — read an object's bytes. Throws
@@ -275,20 +291,27 @@ const stream = await storage.getStream("big.bin"); // pipe it somewhere
 ### Multiple disks (`StorageManager`)
 
 ```ts
-import { createManager, MemoryDriver } from "@rocketbean/genera";
+import { createManager, MemoryDriver, staticCredentials } from "@rocketbean/genera";
 import { S3Driver } from "@rocketbean/genera-s3";
 
 const storage = createManager({
   default: "uploads",
   disks: {
-    uploads: new S3Driver({ bucket: "uploads", region, credentials }),
+    uploads: new S3Driver({
+      bucket: "uploads",
+      region: "us-east-1",
+      credentials: staticCredentials({
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+      }),
+    }),
     cache: new MemoryDriver(),
   },
   options: { retry: true }, // applied to every disk
 });
 
 await storage.disk("cache").put("k", "v");
-await storage.disk().put("photo.jpg", bytes); // the default disk ("uploads")
+await storage.disk().put("photo.jpg", new Uint8Array([/* … */])); // the default disk ("uploads")
 ```
 
 ## Types reference
@@ -412,13 +435,19 @@ Per-provider config:
 
 
 ```ts
+import { S3Driver } from "@rocketbean/genera-s3";
+import { staticCredentials } from "@rocketbean/genera";
+
 // Cloudflare R2
 new S3Driver({
   bucket: "my-bucket",
   region: "auto",
   endpoint: "https://<account>.r2.cloudflarestorage.com",
   forcePathStyle: true,
-  credentials: staticCredentials({ accessKeyId, secretAccessKey }),
+  credentials: staticCredentials({
+    accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+  }),
 });
 ```
 
@@ -552,8 +581,16 @@ import { GoogleDriveDriver } from "@rocketbean/genera-gdrive";
 import { createStorage } from "@rocketbean/genera";
 import { OAuth2Client } from "google-auth-library";
 
-const auth = new OAuth2Client({ clientId, clientSecret, redirectUri });
-auth.setCredentials({ refresh_token });
+// clientId + clientSecret come from your Google Cloud OAuth 2.0 client.
+const auth = new OAuth2Client({
+  clientId: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+});
+
+// A refresh token obtained once via the consent flow (access_type=offline,
+// scope https://www.googleapis.com/auth/drive). google-auth-library mints
+// access tokens from it and refreshes them automatically.
+auth.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
 
 const storage = createStorage(new GoogleDriveDriver({ auth }));
 ```
@@ -585,7 +622,9 @@ import { BoxDriver } from "@rocketbean/genera-box";
 import { createStorage } from "@rocketbean/genera";
 import { BoxClient, BoxDeveloperTokenAuth } from "box-node-sdk";
 
-const client = new BoxClient({ auth: new BoxDeveloperTokenAuth({ token }) });
+const client = new BoxClient({
+  auth: new BoxDeveloperTokenAuth({ token: process.env.BOX_TOKEN! }),
+});
 const storage = createStorage(new BoxDriver({ client }));
 ```
 
@@ -616,9 +655,10 @@ For long-lived keys (S3 family):
 
 ```ts
 import { staticCredentials } from "@rocketbean/genera";
+import { S3Driver } from "@rocketbean/genera-s3";
 
 const credentials = staticCredentials({ accessKeyId: "…", secretAccessKey: "…" });
-new S3Driver({ bucket, region, credentials });
+new S3Driver({ bucket: "my-bucket", region: "us-east-1", credentials });
 ```
 
 ### OAuth 2.0 + PKCE
@@ -636,7 +676,9 @@ import {
   OAuthFlow,
   OAuthCredentialProvider,
   MemoryTokenStore,
+  createStorage,
 } from "@rocketbean/genera";
+import { DropboxDriver } from "@rocketbean/genera-dropbox";
 
 const config = {
   clientId: "…",
@@ -671,7 +713,7 @@ this many ms before expiry; default 60000). Sign out with `await oauthProvider.r
 
 A custom `TokenStore` (e.g. Redis, for shared refresh across instances):
 
-```ts
+```ts skip
 import type { TokenStore, TokenSet } from "@rocketbean/genera";
 
 class RedisTokenStore implements TokenStore {
@@ -692,6 +734,8 @@ Opt in per disk; transient failures (rate limits, 5xx, network blips) are retrie
 with exponential backoff + jitter, honoring `Retry-After`.
 
 ```ts
+import { createStorage } from "@rocketbean/genera";
+
 const storage = createStorage(driver, {
   retry: { maxAttempts: 5, baseDelayMs: 200 },
 });
@@ -717,6 +761,8 @@ standalone helper is also exported: `withRetry(fn, options?)`.
 ## Observability: events
 
 ```ts
+import { createStorage } from "@rocketbean/genera";
+
 const storage = createStorage(driver, {
   events: {
     onSuccess: (e) => metrics.timing(`storage.${e.operation}`, e.durationMs),
@@ -753,12 +799,13 @@ download; Dropbox download is buffered by its SDK (single-chunk stream).
 AES-256-GCM (Web Crypto, isomorphic) before they reach the backend.
 
 ```ts
-import { EncryptionDriver, importAesGcmKey, createStorage } from "@rocketbean/genera";
-import { S3Driver } from "@rocketbean/genera-s3";
+import { EncryptionDriver, importAesGcmKey, createStorage, MemoryDriver } from "@rocketbean/genera";
 
-const key = await importAesGcmKey(my32RawKeyBytes); // or crypto.subtle.generateKey(...)
+// A 32-byte (256-bit) AES key. Persist it — you need the same key to decrypt later.
+const key = await importAesGcmKey(crypto.getRandomValues(new Uint8Array(32)));
+
 const storage = createStorage(
-  new EncryptionDriver(new S3Driver({ bucket, region, credentials }), { key }),
+  new EncryptionDriver(new MemoryDriver(), { key }), // wrap ANY driver (S3, GCS, Azure, …)
 );
 
 await storage.put("secret.txt", "top secret"); // ciphertext at rest; reads decrypt transparently
@@ -834,7 +881,7 @@ Implement the contract, pass the conformance kit, and your driver is a drop-in f
 every other. See **[docs/authoring-a-driver.md](docs/authoring-a-driver.md)** for the
 full walkthrough; the short version:
 
-```ts
+```ts skip
 import { BaseDriver, Capability, type Environment } from "@rocketbean/genera";
 
 class MyDriver extends BaseDriver<MyClient> {
@@ -845,7 +892,7 @@ class MyDriver extends BaseDriver<MyClient> {
 }
 ```
 
-```ts
+```ts skip
 import { describeConformance } from "@rocketbean/genera/conformance";
 describeConformance("MyDriver", () => new MyDriver());
 ```

@@ -158,26 +158,39 @@ export class GoogleDriveDriver extends BaseDriver<drive_v3.Drive> {
     if (existing && opts?.overwrite === false) {
       throw new AlreadyExistsError(`Object already exists at "${path}"`);
     }
-    const bytes = await toBytes(data);
+    // A ReadableStream is piped straight to the SDK (googleapis does a resumable
+    // upload — no full buffering); other inputs are normalized to bytes.
+    const bytes = data instanceof ReadableStream ? undefined : await toBytes(data);
     const media = {
       mimeType: opts?.contentType ?? "application/octet-stream",
-      body: Readable.from(Buffer.from(bytes)),
+      body:
+        bytes === undefined
+          ? Readable.fromWeb(data as unknown as Parameters<typeof Readable.fromWeb>[0])
+          : Readable.from(Buffer.from(bytes)),
     };
     const api = await this.ready();
     let id: string;
+    let size: number;
     try {
       if (existing && existing.type === "file") {
-        const res = await api.files.update({ fileId: existing.id, media, fields: "id", supportsAllDrives: true });
+        const res = await api.files.update({
+          fileId: existing.id,
+          media,
+          fields: "id, size",
+          supportsAllDrives: true,
+        });
         id = res.data.id ?? existing.id;
+        size = bytes?.byteLength ?? Number(res.data.size ?? 0);
       } else {
         const parentId = await this.resolver.resolveDirectoryCreating(parentPath(key));
         const res = await api.files.create({
           requestBody: { name: basename(key), parents: [parentId] },
           media,
-          fields: "id",
+          fields: "id, size",
           supportsAllDrives: true,
         });
         id = res.data.id!;
+        size = bytes?.byteLength ?? Number(res.data.size ?? 0);
       }
     } catch (error) {
       throw this.mapError(error, path);
@@ -187,7 +200,7 @@ export class GoogleDriveDriver extends BaseDriver<drive_v3.Drive> {
       path: this.unresolve(key),
       name: basename(key),
       type: "file",
-      size: bytes.byteLength,
+      size,
       modifiedAt: new Date(),
     };
   }

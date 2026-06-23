@@ -12,6 +12,7 @@ import {
   StorageError,
   UnavailableError,
   basename,
+  chunkBytes,
   parentPath,
   toBytes,
   type DriverOptions,
@@ -69,6 +70,22 @@ export interface BoxClient {
   downloads: {
     downloadFile(fileId: string, options?: unknown): Promise<unknown>;
   };
+  chunkedUploads: {
+    createFileUploadSession(
+      body: { folderId: string; fileName: string; fileSize: number },
+      options?: unknown,
+    ): Promise<{ id: string; partSize?: number }>;
+    uploadFilePart(
+      uploadSessionId: string,
+      requestBody: unknown,
+      options?: { headers?: { digest: string; contentRange: string } },
+    ): Promise<{ part?: unknown }>;
+    createFileUploadSessionCommit(
+      uploadSessionId: string,
+      body: { parts: unknown[] },
+      options?: { headers?: { digest: string } },
+    ): Promise<{ entries?: BoxItem[] }>;
+  };
 }
 
 export interface BoxDriverOptions extends DriverOptions {
@@ -78,6 +95,8 @@ export interface BoxDriverOptions extends DriverOptions {
   rootFolderId?: string;
   /** Same-name-sibling policy. Box usually disallows duplicates; default "first". */
   onAmbiguous?: "first" | "error";
+  /** Bytes per chunk for chunked uploads (falls back to Box's session part size). Default 8 MiB. */
+  chunkSize?: number;
 }
 
 function statusOf(error: unknown): number | undefined {
@@ -87,6 +106,14 @@ function statusOf(error: unknown): number | undefined {
 
 function isNotFound(error: unknown): boolean {
   return statusOf(error) === 404;
+}
+
+/** Box's `Digest` header value: `sha=<base64(SHA-1(bytes))>` (Web Crypto, isomorphic). */
+async function sha1Digest(data: Uint8Array): Promise<string> {
+  const hash = new Uint8Array(await crypto.subtle.digest("SHA-1", data as BufferSource));
+  let binary = "";
+  for (const byte of hash) binary += String.fromCharCode(byte);
+  return `sha=${btoa(binary)}`;
 }
 
 /** Return a Box download as a web `ReadableStream` (it may arrive as a Node `Readable`). */
@@ -160,10 +187,15 @@ export class BoxDriver extends BaseDriver<BoxClient> {
 
   private readonly client: BoxClient;
   private readonly resolver: PathResolver;
+  private readonly chunkSize: number;
+
+  /** Buffers at/above this size use a chunked upload session (Box's threshold ≈ 20 MB). */
+  private static readonly SESSION_THRESHOLD = 20 * 1024 * 1024;
 
   constructor(options: BoxDriverOptions) {
     super(options);
     this.client = options.client;
+    this.chunkSize = options.chunkSize ?? 8 * 1024 * 1024;
     const adapter: PathResolverAdapter = {
       rootId: options.rootFolderId ?? "0",
       listChildren: (parentId, name) => this.listChildren(parentId, name),
@@ -199,19 +231,23 @@ export class BoxDriver extends BaseDriver<BoxClient> {
       throw new AlreadyExistsError(`Object already exists at "${path}"`);
     }
     const bytes = await toBytes(data);
-    const file = Readable.from(Buffer.from(bytes));
     let id: string | undefined;
     try {
-      if (existing && existing.type === "file") {
-        const res = await this.client.uploads.uploadFileVersion(existing.id, { file });
-        id = res.entries?.[0]?.id ?? existing.id;
+      if (data instanceof ReadableStream || bytes.byteLength >= BoxDriver.SESSION_THRESHOLD) {
+        id = await this.chunkedUpload(key, bytes, path);
       } else {
-        const parentId = await this.resolver.resolveDirectoryCreating(parentPath(key));
-        const res = await this.client.uploads.uploadFile({
-          attributes: { name: basename(key), parent: { id: parentId } },
-          file,
-        });
-        id = res.entries?.[0]?.id;
+        const file = Readable.from(Buffer.from(bytes));
+        if (existing && existing.type === "file") {
+          const res = await this.client.uploads.uploadFileVersion(existing.id, { file });
+          id = res.entries?.[0]?.id ?? existing.id;
+        } else {
+          const parentId = await this.resolver.resolveDirectoryCreating(parentPath(key));
+          const res = await this.client.uploads.uploadFile({
+            attributes: { name: basename(key), parent: { id: parentId } },
+            file,
+          });
+          id = res.entries?.[0]?.id;
+        }
       }
     } catch (error) {
       throw this.mapError(error, path);
@@ -225,6 +261,42 @@ export class BoxDriver extends BaseDriver<BoxClient> {
       size: bytes.byteLength,
       modifiedAt: new Date(),
     };
+  }
+
+  /**
+   * Chunked upload session for large/streamed payloads: create session → upload
+   * each part (per-part SHA-1) → commit (whole-file SHA-1). Box needs the total
+   * size up front, so the payload is buffered here.
+   */
+  private async chunkedUpload(key: string, bytes: Uint8Array, path: string): Promise<string> {
+    const parentId = await this.resolver.resolveDirectoryCreating(parentPath(key));
+    const session = await this.client.chunkedUploads.createFileUploadSession({
+      folderId: parentId,
+      fileName: basename(key),
+      fileSize: bytes.byteLength,
+    });
+    const partSize = session.partSize || this.chunkSize;
+    const parts: unknown[] = [];
+    let offset = 0;
+    for await (const chunk of chunkBytes(bytes, partSize)) {
+      const end = offset + chunk.byteLength - 1;
+      const { part } = await this.client.chunkedUploads.uploadFilePart(session.id, chunk, {
+        headers: {
+          digest: await sha1Digest(chunk),
+          contentRange: `bytes ${offset}-${end}/${bytes.byteLength}`,
+        },
+      });
+      parts.push(part);
+      offset = end + 1;
+    }
+    const committed = await this.client.chunkedUploads.createFileUploadSessionCommit(
+      session.id,
+      { parts },
+      { headers: { digest: await sha1Digest(bytes) } },
+    );
+    const id = committed.entries?.[0]?.id;
+    if (!id) throw new StorageError(`Box chunked upload for "${path}" returned no id`, "UNKNOWN");
+    return id;
   }
 
   async get(path: string): Promise<Uint8Array> {

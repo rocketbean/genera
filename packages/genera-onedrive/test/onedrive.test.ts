@@ -27,14 +27,21 @@ function parseResource(resource: string): { key: string | undefined; verb: strin
 
 class FakeRequest {
   private resType: unknown;
+  private hdrs: Record<string, unknown> = {};
 
   constructor(
     private readonly store: Map<string, Stored>,
+    private readonly sessions: Map<string, Uint8Array[]>,
     private readonly resource: string,
   ) {}
 
   responseType(type: unknown): this {
     this.resType = type;
+    return this;
+  }
+
+  headers(headers: Record<string, unknown>): this {
+    this.hdrs = { ...this.hdrs, ...headers };
     return this;
   }
 
@@ -56,6 +63,28 @@ class FakeRequest {
   }
 
   put(content: unknown): Promise<unknown> {
+    // Upload-session chunk PUT to the absolute uploadUrl.
+    if (this.resource.startsWith("https://fake-upload/")) {
+      const key = decodeURIComponent(this.resource.slice("https://fake-upload/".length));
+      const chunks = this.sessions.get(key) ?? [];
+      chunks.push(new Uint8Array(content as Uint8Array));
+      this.sessions.set(key, chunks);
+      const range = String(this.hdrs["Content-Range"] ?? "");
+      const m = range.match(/bytes (\d+)-(\d+)\/(\d+)/);
+      const isFinal = !m || Number(m[2]) === Number(m[3]) - 1;
+      if (!isFinal) return Promise.resolve({});
+      let total = 0;
+      for (const c of chunks) total += c.byteLength;
+      const bytes = new Uint8Array(total);
+      let offset = 0;
+      for (const c of chunks) {
+        bytes.set(c, offset);
+        offset += c.byteLength;
+      }
+      this.store.set(key, { bytes, modified: new Date() });
+      this.sessions.delete(key);
+      return Promise.resolve(this.fileItem(key));
+    }
     const { key } = parseResource(this.resource);
     this.store.set(key!, { bytes: new Uint8Array(content as Uint8Array), modified: new Date() });
     return Promise.resolve(this.fileItem(key!));
@@ -63,6 +92,9 @@ class FakeRequest {
 
   post(): Promise<unknown> {
     const { key, verb } = parseResource(this.resource);
+    if (verb === "createUploadSession") {
+      return Promise.resolve({ uploadUrl: `https://fake-upload/${encodeURIComponent(key ?? "")}` });
+    }
     if (verb === "createLink") {
       return Promise.resolve({ link: { webUrl: `https://1drv.ms/${key}` } });
     }
@@ -134,8 +166,9 @@ class FakeRequest {
 
 class FakeGraphClient {
   private readonly store = new Map<string, Stored>();
+  private readonly sessions = new Map<string, Uint8Array[]>();
   api(resource: string): FakeRequest {
-    return new FakeRequest(this.store, resource);
+    return new FakeRequest(this.store, this.sessions, resource);
   }
 }
 
@@ -177,6 +210,19 @@ describe("OneDriveDriver specifics", () => {
 
   it("requires some form of auth", () => {
     expect(() => new OneDriveDriver({})).toThrow();
+  });
+
+  it("uploads a stream via a chunked upload session", async () => {
+    const driver = new OneDriveDriver({ client: fakeClient(), chunkSize: 4 });
+    const payload = "onedrive-upload-session-payload"; // > 4 bytes → ranged chunks
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(payload));
+        controller.close();
+      },
+    });
+    await driver.put("big.txt", stream);
+    expect(new TextDecoder().decode(await driver.get("big.txt"))).toBe(payload);
   });
 });
 

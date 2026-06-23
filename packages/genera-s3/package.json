@@ -41,6 +41,15 @@
     "driver"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rocketbean/genera.git",
+    "directory": "packages/genera-s3"
+  },
+  "homepage": "https://github.com/rocketbean/genera/tree/main/packages/genera-s3#readme",
+  "bugs": {
+    "url": "https://github.com/rocketbean/genera/issues"
+  },
   "publishConfig": {
     "access": "public"
   },

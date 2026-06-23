@@ -12,6 +12,7 @@ import {
   StorageError,
   UnavailableError,
   basename,
+  chunkBytes,
   parentPath,
   toBytes,
   type CredentialProvider,
@@ -32,6 +33,8 @@ export interface OneDriveDriverOptions extends DriverOptions {
   accessToken?: string;
   /** Escape hatch (and test seam): bring your own configured Graph `Client`. */
   client?: Client;
+  /** Bytes per upload-session chunk (use a multiple of 320 KiB). Default 1.6 MiB. */
+  chunkSize?: number;
 }
 
 function statusOf(error: unknown): number | undefined {
@@ -87,6 +90,10 @@ export class OneDriveDriver extends BaseDriver<Client> {
   ]);
 
   private readonly graph: Client;
+  private readonly chunkSize: number;
+
+  /** Simple PUT-to-content caps at ~4 MB; larger uploads use an upload session. */
+  private static readonly SESSION_THRESHOLD = 4 * 1024 * 1024;
 
   constructor(options: OneDriveDriverOptions) {
     super(options);
@@ -96,6 +103,7 @@ export class OneDriveDriver extends BaseDriver<Client> {
         "AUTH",
       );
     }
+    this.chunkSize = options.chunkSize ?? 5 * 320 * 1024;
     this.graph =
       options.client ??
       Client.initWithMiddleware({
@@ -125,10 +133,45 @@ export class OneDriveDriver extends BaseDriver<Client> {
     if (opts?.overwrite === false && (await this.exists(path))) {
       throw new AlreadyExistsError(`Object already exists at "${path}"`);
     }
+    // The session protocol needs the total size up front, so streams are buffered
+    // here; streams and buffers above the simple-PUT cap chunk-upload via a session.
+    const bytes = await toBytes(data);
+    if (data instanceof ReadableStream || bytes.byteLength >= OneDriveDriver.SESSION_THRESHOLD) {
+      return this.uploadSession(key, bytes, path);
+    }
     try {
       const item: DriveItem = await this.graph
         .api(`${this.toItemPath(key)}/content`)
-        .put(await toBytes(data));
+        .put(bytes);
+      return this.entryForItem(item, key);
+    } catch (error) {
+      throw this.mapError(error, path);
+    }
+  }
+
+  /** Upload via a Graph upload session: createUploadSession → PUT ranged chunks. */
+  private async uploadSession(
+    key: string,
+    bytes: Uint8Array,
+    path: string,
+  ): Promise<StorageEntry> {
+    try {
+      const session = await this.graph
+        .api(`${this.toItemPath(key)}/createUploadSession`)
+        .post({ item: { "@microsoft.graph.conflictBehavior": "replace" } });
+      const uploadUrl: string = session.uploadUrl;
+      const total = bytes.byteLength;
+      let offset = 0;
+      let item: DriveItem = {};
+      for await (const chunk of chunkBytes(bytes, this.chunkSize)) {
+        const end = offset + chunk.byteLength - 1;
+        // The uploadUrl is absolute + pre-authenticated; the client PUTs to it directly.
+        item = await this.graph
+          .api(uploadUrl)
+          .headers({ "Content-Range": `bytes ${offset}-${end}/${total}` })
+          .put(chunk);
+        offset = end + 1;
+      }
       return this.entryForItem(item, key);
     } catch (error) {
       throw this.mapError(error, path);
