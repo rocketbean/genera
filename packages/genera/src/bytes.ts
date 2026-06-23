@@ -48,3 +48,42 @@ async function drainStream(stream: ReadableStream): Promise<Uint8Array> {
   }
   return out;
 }
+
+/**
+ * Yield `data` as fixed-size chunks. A `Uint8Array` is sliced into views; a
+ * `ReadableStream` is read incrementally and re-chunked to `chunkSize` without
+ * ever buffering the whole payload. Powers the chunked/session upload paths of the
+ * Tier 2 drivers. The final chunk may be smaller than `chunkSize`.
+ */
+export async function* chunkBytes(
+  data: Uint8Array | ReadableStream<Uint8Array>,
+  chunkSize: number,
+): AsyncIterable<Uint8Array> {
+  if (data instanceof Uint8Array) {
+    for (let offset = 0; offset < data.byteLength; offset += chunkSize) {
+      yield data.subarray(offset, Math.min(offset + chunkSize, data.byteLength));
+    }
+    return;
+  }
+
+  const reader = data.getReader();
+  let buffer = new Uint8Array(0);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value || value.byteLength === 0) continue;
+      const merged = new Uint8Array(buffer.byteLength + value.byteLength);
+      merged.set(buffer, 0);
+      merged.set(value, buffer.byteLength);
+      buffer = merged;
+      while (buffer.byteLength >= chunkSize) {
+        yield buffer.subarray(0, chunkSize);
+        buffer = buffer.slice(chunkSize);
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  if (buffer.byteLength > 0) yield buffer;
+}

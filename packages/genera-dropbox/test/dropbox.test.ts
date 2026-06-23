@@ -21,6 +21,8 @@ type AnyArgs = {
 
 class FakeDropbox {
   private files = new Map<string, { bytes: Uint8Array; modified: Date }>();
+  private sessions = new Map<string, Uint8Array[]>();
+  private sessionSeq = 0;
 
   private notFound(): never {
     // eslint-disable-next-line no-throw-literal
@@ -57,6 +59,53 @@ class FakeDropbox {
       modified: new Date(),
     });
     return Promise.resolve({ result: this.fileMeta(path!) });
+  }
+
+  filesUploadSessionStart({ contents }: { contents?: unknown }) {
+    const id = `sess${++this.sessionSeq}`;
+    this.sessions.set(
+      id,
+      contents instanceof Uint8Array && contents.byteLength ? [new Uint8Array(contents)] : [],
+    );
+    return Promise.resolve({ result: { session_id: id } });
+  }
+
+  filesUploadSessionAppendV2({
+    cursor,
+    contents,
+  }: {
+    cursor: { session_id: string };
+    contents?: unknown;
+  }) {
+    const chunks = this.sessions.get(cursor.session_id);
+    if (chunks && contents instanceof Uint8Array && contents.byteLength) {
+      chunks.push(new Uint8Array(contents));
+    }
+    return Promise.resolve({});
+  }
+
+  filesUploadSessionFinish({
+    cursor,
+    commit,
+    contents,
+  }: {
+    cursor: { session_id: string };
+    commit: { path: string };
+    contents?: unknown;
+  }) {
+    const chunks = this.sessions.get(cursor.session_id) ?? [];
+    if (contents instanceof Uint8Array && contents.byteLength) chunks.push(new Uint8Array(contents));
+    let total = 0;
+    for (const c of chunks) total += c.byteLength;
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const c of chunks) {
+      bytes.set(c, offset);
+      offset += c.byteLength;
+    }
+    this.files.set(commit.path, { bytes, modified: new Date() });
+    this.sessions.delete(cursor.session_id);
+    return Promise.resolve({ result: this.fileMeta(commit.path) });
   }
 
   filesDownload({ path }: AnyArgs) {
@@ -180,6 +229,19 @@ describe("DropboxDriver specifics", () => {
 
   it("requires some form of auth", () => {
     expect(() => new DropboxDriver({})).toThrow();
+  });
+
+  it("uploads a stream via a chunked upload session", async () => {
+    const driver = new DropboxDriver({ client: fakeClient(), chunkSize: 4 });
+    const payload = "chunked-upload-session-payload"; // > 4 bytes → multiple chunks
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(payload));
+        controller.close();
+      },
+    });
+    await driver.put("big.txt", stream);
+    expect(new TextDecoder().decode(await driver.get("big.txt"))).toBe(payload);
   });
 });
 

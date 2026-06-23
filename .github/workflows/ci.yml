@@ -32,6 +32,11 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # Copy-paste safety: every ` ```ts ` block in the READMEs must type-check
+      # against the built packages (catches bad imports / undeclared identifiers).
+      - name: Check README snippets
+        run: pnpm check:docs
+
       # Tier-1 conformance runs against local emulators (plan Phase 2).
       # Without these, the driver suites skip; with them, every push/PR proves
       # the "swap a driver, it still works" guarantee end-to-end.

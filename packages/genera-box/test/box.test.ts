@@ -39,6 +39,10 @@ function createFakeBox(): BoxClient {
     { name: string; parentId: string; type: "file" | "folder"; bytes?: Uint8Array }
   >();
   let seq = 0;
+  const uploadSessions = new Map<
+    string,
+    { folderId: string; fileName: string; chunks: Uint8Array[] }
+  >();
   const itemOf = (id: string): BoxItem => {
     const n = nodes.get(id)!;
     return {
@@ -109,6 +113,34 @@ function createFakeBox(): BoxClient {
         return Promise.resolve(Readable.from(Buffer.from(n.bytes ?? new Uint8Array())));
       },
     },
+    chunkedUploads: {
+      createFileUploadSession(body: { folderId: string; fileName: string; fileSize: number }) {
+        const id = `up${++seq}`;
+        uploadSessions.set(id, { folderId: body.folderId, fileName: body.fileName, chunks: [] });
+        return Promise.resolve({ id, partSize: 5 });
+      },
+      uploadFilePart(uploadSessionId: string, requestBody: unknown) {
+        const session = uploadSessions.get(uploadSessionId);
+        const bytes = new Uint8Array(requestBody as Uint8Array);
+        if (session) session.chunks.push(bytes);
+        return Promise.resolve({ part: { size: bytes.byteLength } });
+      },
+      createFileUploadSessionCommit(uploadSessionId: string) {
+        const session = uploadSessions.get(uploadSessionId)!;
+        let total = 0;
+        for (const c of session.chunks) total += c.byteLength;
+        const bytes = new Uint8Array(total);
+        let offset = 0;
+        for (const c of session.chunks) {
+          bytes.set(c, offset);
+          offset += c.byteLength;
+        }
+        const id = `b${++seq}`;
+        nodes.set(id, { name: session.fileName, parentId: session.folderId, type: "file", bytes });
+        uploadSessions.delete(uploadSessionId);
+        return Promise.resolve({ entries: [itemOf(id)] });
+      },
+    },
   };
 }
 
@@ -154,5 +186,18 @@ describe("BoxDriver specifics", () => {
     await expect(
       storage.unwrap().put("once.txt", "second", { overwrite: false }),
     ).rejects.toMatchObject({ code: "ALREADY_EXISTS" });
+  });
+
+  it("uploads a stream via a chunked upload session", async () => {
+    const driver = new BoxDriver({ client: createFakeBox() });
+    const payload = "box-chunked-upload-session-payload"; // multi-part at the fake's part size
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(payload));
+        controller.close();
+      },
+    });
+    await driver.put("big.txt", stream);
+    expect(new TextDecoder().decode(await driver.get("big.txt"))).toBe(payload);
   });
 });

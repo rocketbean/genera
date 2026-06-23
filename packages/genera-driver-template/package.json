@@ -29,6 +29,15 @@
     "test": "vitest run --passWithNoTests"
   },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rocketbean/genera.git",
+    "directory": "packages/genera-driver-template"
+  },
+  "homepage": "https://github.com/rocketbean/genera/tree/main/packages/genera-driver-template#readme",
+  "bugs": {
+    "url": "https://github.com/rocketbean/genera/issues"
+  },
   "peerDependencies": {
     "@rocketbean/genera": "workspace:^"
   },

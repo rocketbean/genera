@@ -37,6 +37,15 @@
     "driver"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rocketbean/genera.git",
+    "directory": "packages/genera-gcs"
+  },
+  "homepage": "https://github.com/rocketbean/genera/tree/main/packages/genera-gcs#readme",
+  "bugs": {
+    "url": "https://github.com/rocketbean/genera/issues"
+  },
   "publishConfig": {
     "access": "public"
   },

@@ -77,7 +77,9 @@ class FakeFiles {
       ...(params.media ? { bytes: await drain(params.media.body) } : {}),
     };
     this.nodes.set(id, node);
-    return { data: { id, name: node.name } };
+    return {
+      data: { id, name: node.name, size: node.bytes ? String(node.bytes.byteLength) : undefined },
+    };
   }
 
   async update(params: { fileId: string; media?: { body: unknown } }) {
@@ -85,7 +87,9 @@ class FakeFiles {
     if (!node) throw driveNotFound();
     if (params.media) node.bytes = await drain(params.media.body);
     node.modifiedTime = new Date().toISOString();
-    return { data: { id: params.fileId } };
+    return {
+      data: { id: params.fileId, size: node.bytes ? String(node.bytes.byteLength) : undefined },
+    };
   }
 
   get(params: { fileId: string; alt?: string }, opts?: { responseType?: string }) {

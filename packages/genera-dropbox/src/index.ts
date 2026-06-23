@@ -10,6 +10,7 @@ import {
   RateLimitError,
   StorageError,
   UnavailableError,
+  chunkBytes,
   toBytes,
   type CredentialProvider,
   type DriverOptions,
@@ -29,6 +30,8 @@ export interface DropboxDriverOptions extends DriverOptions {
   accessToken?: string;
   /** Escape hatch (and test seam): bring your own configured Dropbox client. */
   client?: Dropbox;
+  /** Bytes per upload-session chunk for large/streamed uploads. Default 8 MiB. */
+  chunkSize?: number;
 }
 
 /** A download response carries the bytes differently by runtime. */
@@ -66,7 +69,11 @@ export class DropboxDriver extends BaseDriver<Dropbox> {
   ]);
 
   private readonly options: DropboxDriverOptions;
+  private readonly chunkSize: number;
   private dbx: Dropbox;
+
+  /** Single-shot `filesUpload` caps at ~150 MB; larger buffers use a session. */
+  private static readonly SESSION_THRESHOLD = 150 * 1024 * 1024;
 
   constructor(options: DropboxDriverOptions) {
     super(options);
@@ -77,6 +84,7 @@ export class DropboxDriver extends BaseDriver<Dropbox> {
       );
     }
     this.options = options;
+    this.chunkSize = options.chunkSize ?? 8 * 1024 * 1024;
     this.dbx =
       options.client ??
       new Dropbox(options.accessToken ? { accessToken: options.accessToken } : {});
@@ -111,11 +119,63 @@ export class DropboxDriver extends BaseDriver<Dropbox> {
       throw new AlreadyExistsError(`Object already exists at "${path}"`);
     }
     const dbx = await this.client();
+    // Streams (size unknown) and buffers above the single-shot cap upload via a
+    // session; chunkBytes feeds it without buffering the whole payload.
+    if (data instanceof ReadableStream) {
+      return this.uploadSession(dbx, key, data, path);
+    }
+    const contents = await toBytes(data);
+    if (contents.byteLength >= DropboxDriver.SESSION_THRESHOLD) {
+      return this.uploadSession(dbx, key, contents, path);
+    }
     try {
       const { result } = await dbx.filesUpload({
         path: this.toDropboxPath(key),
-        contents: await toBytes(data),
+        contents,
         mode: { ".tag": "overwrite" },
+      });
+      return this.entryForFile(result);
+    } catch (error) {
+      throw this.mapError(error, path);
+    }
+  }
+
+  /** Upload via a Dropbox upload session: start → append (per chunk) → finish. */
+  private async uploadSession(
+    dbx: Dropbox,
+    key: string,
+    data: Uint8Array | ReadableStream<Uint8Array>,
+    path: string,
+  ): Promise<StorageEntry> {
+    try {
+      let sessionId = "";
+      let offset = 0;
+      let started = false;
+      for await (const chunk of chunkBytes(data, this.chunkSize)) {
+        if (!started) {
+          const { result } = await dbx.filesUploadSessionStart({ close: false, contents: chunk });
+          sessionId = result.session_id;
+          started = true;
+        } else {
+          await dbx.filesUploadSessionAppendV2({
+            cursor: { session_id: sessionId, offset },
+            close: false,
+            contents: chunk,
+          });
+        }
+        offset += chunk.byteLength;
+      }
+      if (!started) {
+        const { result } = await dbx.filesUploadSessionStart({
+          close: false,
+          contents: new Uint8Array(0),
+        });
+        sessionId = result.session_id;
+      }
+      const { result } = await dbx.filesUploadSessionFinish({
+        cursor: { session_id: sessionId, offset },
+        commit: { path: this.toDropboxPath(key), mode: { ".tag": "overwrite" } },
+        contents: new Uint8Array(0),
       });
       return this.entryForFile(result);
     } catch (error) {
