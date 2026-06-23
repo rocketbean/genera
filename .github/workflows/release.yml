@@ -6,6 +6,7 @@ name: Release
 on:
   push:
     branches: [main]
+  workflow_dispatch: # manual run from the Actions tab / `gh workflow run release.yml`
 
 # Avoid overlapping release runs.
 concurrency: ${{ github.workflow }}-${{ github.ref }}
