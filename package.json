@@ -17,7 +17,7 @@
     "ci": "pnpm lint && pnpm typecheck && pnpm build && pnpm test",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "pnpm -r build && changeset publish"
+    "release": "pnpm -r build && pnpm -r publish"
   },
   "devDependencies": {
     "@changesets/cli": "^2",

@@ -11,7 +11,7 @@ on:
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 permissions:
-  contents: write # create the version PR, tags, and GitHub releases
+  contents: write # commit the version bumps for the "Version Packages" PR
   pull-requests: write # open/update the "Version Packages" PR
   id-token: write # npm provenance via OIDC
 
@@ -39,6 +39,13 @@ jobs:
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      # `publish: pnpm release` runs `pnpm -r build && pnpm -r publish`. We use
+      # `pnpm -r publish` rather than `changeset publish` because the npm token is a
+      # granular access token, and `changeset publish` probes /-/npm/v1/user (an
+      # account endpoint granular tokens can't read → 403). pnpm only does the
+      # package-level PUT, which the token is allowed to do. Trade-off: the
+      # changesets action won't auto-create git tags / GitHub releases here.
+      # (Alternative: npm Trusted Publishing via OIDC — token-less; see docs/releasing.md.)
       - name: Create release PR or publish
         uses: changesets/action@v1
         with:
@@ -46,5 +53,5 @@ jobs:
           publish: pnpm release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Enables npm provenance for CI publishes only (local publishes stay unaffected).
+          # Enables npm provenance for CI publishes (requires a public repo).
           NPM_CONFIG_PROVENANCE: "true"
