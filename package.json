@@ -1,6 +1,6 @@
 {
   "name": "genera-monorepo",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Monorepo for @rocketbean/genera — one API for every cloud storage provider.",
   "packageManager": "pnpm@11.8.0",

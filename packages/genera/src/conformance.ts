@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createStorage } from "./manager";
+import { toBytes } from "./bytes";
 import { Capability } from "./types";
 import type { StorageDriver } from "./driver";
 import type { StorageEntry } from "./types";
@@ -145,6 +146,28 @@ export function describeConformance(name: string, makeDriver: () => StorageDrive
         await expect(disk.getSignedUrl("x.txt")).rejects.toMatchObject({
           code: "OPERATION_NOT_SUPPORTED",
         });
+      });
+
+      it("streams bytes back via getStream when Capability.Stream is advertised", async () => {
+        if (!driver.capabilities.has(Capability.Stream)) return;
+        const disk = createStorage(driver);
+        await disk.put("stream/out.bin", new Uint8Array([1, 2, 3, 4, 5]));
+        const stream = await disk.getStream("stream/out.bin");
+        expect(stream).toBeInstanceOf(ReadableStream);
+        expect([...(await toBytes(stream))]).toEqual([1, 2, 3, 4, 5]);
+      });
+
+      it("accepts a ReadableStream in put when Capability.Stream is advertised", async () => {
+        if (!driver.capabilities.has(Capability.Stream)) return;
+        const disk = createStorage(driver);
+        const source = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("streamed input"));
+            controller.close();
+          },
+        });
+        await disk.put("stream/in.txt", source);
+        expect(new TextDecoder().decode(await disk.get("stream/in.txt"))).toBe("streamed input");
       });
     });
   });

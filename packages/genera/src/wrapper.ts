@@ -75,6 +75,10 @@ export abstract class WrapperDriver<TInner extends StorageDriver = StorageDriver
     return this.inner.getSignedUrl!(path, opts);
   }
 
+  getStream(path: string): Promise<ReadableStream<Uint8Array>> {
+    return this.inner.getStream!(path);
+  }
+
   createDirectory(path: string): Promise<void> {
     return this.inner.createDirectory!(path);
   }

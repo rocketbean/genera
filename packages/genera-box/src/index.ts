@@ -89,6 +89,29 @@ function isNotFound(error: unknown): boolean {
   return statusOf(error) === 404;
 }
 
+/** Return a Box download as a web `ReadableStream` (it may arrive as a Node `Readable`). */
+function toWebStream(stream: unknown): ReadableStream<Uint8Array> {
+  if (stream instanceof ReadableStream) return stream as ReadableStream<Uint8Array>;
+  const iterator = (stream as AsyncIterable<Buffer | Uint8Array | string>)[
+    Symbol.asyncIterator
+  ]();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { done, value } = await iterator.next();
+      if (done) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(
+        typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value),
+      );
+    },
+    async cancel() {
+      await iterator.return?.();
+    },
+  });
+}
+
 /** Drain a Box download (Node `Readable`, web `ReadableStream`, or raw bytes) into a `Uint8Array`. */
 async function streamToBytes(stream: unknown): Promise<Uint8Array> {
   if (stream instanceof Uint8Array) return new Uint8Array(stream);
@@ -131,6 +154,7 @@ export class BoxDriver extends BaseDriver<BoxClient> {
     Capability.Stat,
     Capability.CreateDirectory,
     Capability.DeleteDirectory,
+    Capability.Stream,
   ]);
   readonly environments: ReadonlySet<Environment> = new Set<Environment>(["node"]);
 
@@ -285,6 +309,18 @@ export class BoxDriver extends BaseDriver<BoxClient> {
     const node = await this.resolver.resolve(this.resolve(path));
     if (!node) throw new NotFoundError(`No object found at "${path}"`);
     return node.id;
+  }
+
+  async getStream(path: string): Promise<ReadableStream<Uint8Array>> {
+    const node = await this.resolver.resolve(this.resolve(path));
+    if (!node || node.type !== "file") {
+      throw new NotFoundError(`No object found at "${path}"`);
+    }
+    try {
+      return toWebStream(await this.client.downloads.downloadFile(node.id));
+    } catch (error) {
+      throw this.mapError(error, path);
+    }
   }
 
   // --- Capability-gated operations (advertised in `capabilities` above) ---

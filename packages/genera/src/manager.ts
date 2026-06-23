@@ -135,6 +135,12 @@ export class Disk {
     return this.run("getSignedUrl", path, () => this.driver.getSignedUrl!(path, opts));
   }
 
+  /** Stream an object's bytes without buffering. Requires `Capability.Stream`. */
+  async getStream(path: string): Promise<ReadableStream<Uint8Array>> {
+    this.require(Capability.Stream, "getStream");
+    return this.run("getStream", path, () => this.driver.getStream!(path));
+  }
+
   /** Explicitly create a directory. Requires `Capability.CreateDirectory`. */
   async createDirectory(path: string): Promise<void> {
     this.require(Capability.CreateDirectory, "createDirectory");

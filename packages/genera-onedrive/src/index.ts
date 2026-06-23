@@ -42,6 +42,28 @@ function isNotFound(error: unknown): boolean {
   return statusOf(error) === 404;
 }
 
+/** Wrap a Node `Readable` (the Graph stream download body) as a web `ReadableStream`. */
+function nodeReadableToWeb(readable: NodeJS.ReadableStream): ReadableStream<Uint8Array> {
+  const iterator = (readable as AsyncIterable<Buffer | Uint8Array | string>)[
+    Symbol.asyncIterator
+  ]();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { done, value } = await iterator.next();
+      if (done) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(
+        typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value),
+      );
+    },
+    async cancel() {
+      await iterator.return?.();
+    },
+  });
+}
+
 /**
  * OneDrive driver over Microsoft Graph — a **path-native** Tier 2 provider: Graph
  * addresses items by path (`/me/drive/root:/a/b.txt:`), so the only translation is
@@ -52,6 +74,7 @@ function isNotFound(error: unknown): boolean {
 export class OneDriveDriver extends BaseDriver<Client> {
   readonly capabilities: ReadonlySet<Capability> = new Set([
     Capability.SignedUrl,
+    Capability.Stream,
     Capability.Copy,
     Capability.Move,
     Capability.Stat,
@@ -257,6 +280,29 @@ export class OneDriveDriver extends BaseDriver<Client> {
       scope: "anonymous",
     });
     return result.link?.webUrl ?? "";
+  }
+
+  async getStream(path: string): Promise<ReadableStream<Uint8Array>> {
+    const key = this.resolve(path);
+    try {
+      if (typeof window === "undefined") {
+        const readable = await this.graph
+          .api(`${this.toItemPath(key)}/content`)
+          .responseType(ResponseType.STREAM)
+          .get();
+        return nodeReadableToWeb(readable as NodeJS.ReadableStream);
+      }
+      // Browser: Graph's stream type isn't a web stream — fall back to a one-shot wrap.
+      const bytes = await this.get(path);
+      return new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(bytes);
+          controller.close();
+        },
+      });
+    } catch (error) {
+      throw this.mapError(error, path);
+    }
   }
 
   private entryForItem(item: DriveItem, key: string): StorageEntry {

@@ -45,6 +45,8 @@ export interface StorageDriver<TNative = unknown> {
   stat?(path: string): Promise<StorageEntry>;
   /** A time-limited signed URL (`Capability.SignedUrl`). */
   getSignedUrl?(path: string, opts?: SignedUrlOptions): Promise<string>;
+  /** Stream an object's bytes without buffering it all into memory (`Capability.Stream`). */
+  getStream?(path: string): Promise<ReadableStream<Uint8Array>>;
   /** Explicitly create a directory (`Capability.CreateDirectory`). */
   createDirectory?(path: string): Promise<void>;
   /** Recursively delete a directory (`Capability.DeleteDirectory`). */

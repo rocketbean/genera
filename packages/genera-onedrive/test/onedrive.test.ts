@@ -1,5 +1,7 @@
+import { Readable } from "node:stream";
+
 import { describe, expect, it } from "vitest";
-import { Client } from "@microsoft/microsoft-graph-client";
+import { Client, ResponseType } from "@microsoft/microsoft-graph-client";
 
 import { createStorage } from "@rocketbean/genera";
 import { describeConformance } from "@rocketbean/genera/conformance";
@@ -24,12 +26,15 @@ function parseResource(resource: string): { key: string | undefined; verb: strin
 }
 
 class FakeRequest {
+  private resType: unknown;
+
   constructor(
     private readonly store: Map<string, Stored>,
     private readonly resource: string,
   ) {}
 
-  responseType(): this {
+  responseType(type: unknown): this {
+    this.resType = type;
     return this;
   }
 
@@ -38,6 +43,9 @@ class FakeRequest {
     if (verb === "content") {
       const file = this.store.get(key!);
       if (!file) return Promise.reject(graphNotFound());
+      if (this.resType === ResponseType.STREAM) {
+        return Promise.resolve(Readable.from(Buffer.from(file.bytes)));
+      }
       return Promise.resolve(file.bytes.slice().buffer);
     }
     if (verb === "children") return Promise.resolve({ value: this.childrenOf(key ?? "") });

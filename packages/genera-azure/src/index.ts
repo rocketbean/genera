@@ -70,6 +70,28 @@ function azStatus(error: unknown): number | undefined {
   return (error as { statusCode?: number } | undefined)?.statusCode;
 }
 
+/** Wrap a Node `Readable` (the Azure download body) as a web `ReadableStream` — no node:stream import. */
+function nodeReadableToWeb(readable: NodeJS.ReadableStream): ReadableStream<Uint8Array> {
+  const iterator = (readable as AsyncIterable<Buffer | Uint8Array | string>)[
+    Symbol.asyncIterator
+  ]();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { done, value } = await iterator.next();
+      if (done) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(
+        typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value),
+      );
+    },
+    async cancel() {
+      await iterator.return?.();
+    },
+  });
+}
+
 /**
  * Azure Blob Storage driver. A distinct SDK from S3 but the same key-native
  * paradigm: the canonical path is the blob name and `resolveNativeId` returns it.
@@ -79,6 +101,7 @@ function azStatus(error: unknown): number | undefined {
 export class AzureBlobDriver extends BaseDriver<BlobServiceClient> {
   readonly capabilities: ReadonlySet<Capability> = new Set([
     Capability.SignedUrl,
+    Capability.Stream,
     Capability.Copy,
     Capability.Move,
     Capability.Stat,
@@ -285,6 +308,19 @@ export class AzureBlobDriver extends BaseDriver<BlobServiceClient> {
       permissions: BlobSASPermissions.parse(opts?.action === "write" ? "w" : "r"),
       expiresOn: new Date(Date.now() + expiresIn * 1000),
     });
+  }
+
+  async getStream(path: string): Promise<ReadableStream<Uint8Array>> {
+    const key = this.resolve(path);
+    try {
+      const dl = await this.blobFor(key).download();
+      // Node yields a Readable; the browser a Blob — return a web ReadableStream either way.
+      return typeof window === "undefined"
+        ? nodeReadableToWeb(dl.readableStreamBody!)
+        : (await dl.blobBody!).stream();
+    } catch (error) {
+      throw this.mapError(error, path);
+    }
   }
 
   /** Build the SDK upload options, omitting absent fields (exactOptionalPropertyTypes). */

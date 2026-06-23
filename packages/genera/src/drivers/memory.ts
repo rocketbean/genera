@@ -29,6 +29,7 @@ export class MemoryDriver extends BaseDriver<Map<string, StoredObject>> {
     Capability.Copy,
     Capability.Move,
     Capability.Stat,
+    Capability.Stream,
   ]);
   readonly environments: ReadonlySet<Environment> = new Set<Environment>([
     "node",
@@ -144,6 +145,16 @@ export class MemoryDriver extends BaseDriver<Map<string, StoredObject>> {
       throw new NotFoundError(`No object found at "${path}"`);
     }
     return this.entryFor(key, object);
+  }
+
+  async getStream(path: string): Promise<ReadableStream<Uint8Array>> {
+    const bytes = await this.get(path); // throws NotFoundError if absent
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes);
+        controller.close();
+      },
+    });
   }
 
   private entryFor(key: string, object: StoredObject): StorageEntry {

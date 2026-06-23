@@ -1,3 +1,5 @@
+import { Readable } from "node:stream";
+
 import {
   Storage,
   type Bucket,
@@ -67,11 +69,15 @@ function gcsStatus(error: unknown): number | undefined {
 export class GcsDriver extends BaseDriver<Storage> {
   readonly capabilities: ReadonlySet<Capability> = new Set([
     Capability.SignedUrl,
+    Capability.Stream,
     Capability.Copy,
     Capability.Move,
     Capability.Stat,
   ]);
   readonly environments: ReadonlySet<Environment> = new Set<Environment>(["node"]);
+
+  /** Buffers at or above this size use a resumable upload. */
+  private static readonly RESUMABLE_THRESHOLD = 5 * 1024 * 1024;
 
   private readonly bucketName: string;
   private readonly storage: Storage;
@@ -110,7 +116,9 @@ export class GcsDriver extends BaseDriver<Storage> {
       if (exists) throw new AlreadyExistsError(`Object already exists at "${path}"`);
     }
     const body = Buffer.from(await toBytes(data));
-    const saveOptions: SaveOptions = { resumable: false };
+    const saveOptions: SaveOptions = {
+      resumable: body.byteLength >= GcsDriver.RESUMABLE_THRESHOLD,
+    };
     if (opts?.contentType !== undefined) saveOptions.contentType = opts.contentType;
     if (opts?.metadata !== undefined) saveOptions.metadata = { metadata: opts.metadata };
     try {
@@ -246,6 +254,11 @@ export class GcsDriver extends BaseDriver<Storage> {
       expires: Date.now() + expiresIn * 1000,
     });
     return url;
+  }
+
+  async getStream(path: string): Promise<ReadableStream<Uint8Array>> {
+    const readable = this.fileFor(this.resolve(path)).createReadStream();
+    return Readable.toWeb(readable) as ReadableStream<Uint8Array>;
   }
 
   private entryForFile(file: File): StorageEntry {

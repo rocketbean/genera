@@ -53,6 +53,7 @@ function isPathNotFound(error: unknown): boolean {
 export class DropboxDriver extends BaseDriver<Dropbox> {
   readonly capabilities: ReadonlySet<Capability> = new Set([
     Capability.SignedUrl,
+    Capability.Stream,
     Capability.Copy,
     Capability.Move,
     Capability.Stat,
@@ -191,6 +192,18 @@ export class DropboxDriver extends BaseDriver<Dropbox> {
   async resolveNativeId(path: string): Promise<string> {
     // Path-native: the Dropbox path is the native identifier.
     return this.toDropboxPath(this.resolve(path));
+  }
+
+  async getStream(path: string): Promise<ReadableStream<Uint8Array>> {
+    // The Dropbox SDK buffers downloads (no native stream), so this is a
+    // single-chunk wrapper — correct, but not memory-saving for large files.
+    const bytes = await this.get(path);
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes);
+        controller.close();
+      },
+    });
   }
 
   // --- Capability-gated operations (advertised in `capabilities` above) ---

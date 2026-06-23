@@ -339,6 +339,19 @@ export class S3Driver extends BaseDriver<S3Client> {
     return getSignedUrl(this.client, command, { expiresIn });
   }
 
+  async getStream(path: string): Promise<ReadableStream<Uint8Array>> {
+    const key = this.resolve(path);
+    try {
+      const out = await this.client.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+      // The sdk-stream-mixin gives a web ReadableStream in both runtimes.
+      return out.Body!.transformToWebStream() as ReadableStream<Uint8Array>;
+    } catch (error) {
+      throw this.mapError(error, path);
+    }
+  }
+
   /** HEAD a key, returning its metadata or `undefined` when it does not exist. */
   private async headKey(key: string): Promise<HeadObjectCommandOutput | undefined> {
     try {

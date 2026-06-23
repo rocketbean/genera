@@ -1,3 +1,5 @@
+import { Readable } from "node:stream";
+
 import { describe, expect, it } from "vitest";
 import type { drive_v3 } from "@googleapis/drive";
 
@@ -86,11 +88,15 @@ class FakeFiles {
     return { data: { id: params.fileId } };
   }
 
-  get(params: { fileId: string; alt?: string }) {
+  get(params: { fileId: string; alt?: string }, opts?: { responseType?: string }) {
     const node = this.nodes.get(params.fileId);
     if (!node) throw driveNotFound();
     if (params.alt === "media") {
-      return Promise.resolve({ data: (node.bytes ?? new Uint8Array()).slice().buffer });
+      const bytes = node.bytes ?? new Uint8Array();
+      if (opts?.responseType === "stream") {
+        return Promise.resolve({ data: Readable.from(Buffer.from(bytes)) });
+      }
+      return Promise.resolve({ data: bytes.slice().buffer });
     }
     return Promise.resolve({
       data: {

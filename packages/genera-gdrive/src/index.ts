@@ -77,6 +77,7 @@ export class GoogleDriveDriver extends BaseDriver<drive_v3.Drive> {
     Capability.Stat,
     Capability.CreateDirectory,
     Capability.DeleteDirectory,
+    Capability.Stream,
   ]);
   readonly environments: ReadonlySet<Environment> = new Set<Environment>(["node"]);
 
@@ -320,6 +321,23 @@ export class GoogleDriveDriver extends BaseDriver<drive_v3.Drive> {
    * Export a native Google Doc/Sheet/Slide to bytes of `mimeType`. Required for
    * Google-native files, which cannot be downloaded via `alt=media`.
    */
+  async getStream(path: string): Promise<ReadableStream<Uint8Array>> {
+    const node = await this.resolver.resolve(this.resolve(path));
+    if (!node || node.type !== "file") {
+      throw new NotFoundError(`No object found at "${path}"`);
+    }
+    const api = await this.ready();
+    try {
+      const res = await api.files.get(
+        { fileId: node.id, alt: "media", supportsAllDrives: true },
+        { responseType: "stream" },
+      );
+      return Readable.toWeb(res.data as unknown as Readable) as ReadableStream<Uint8Array>;
+    } catch (error) {
+      throw this.mapError(error, path);
+    }
+  }
+
   async export(path: string, mimeType: string): Promise<Uint8Array> {
     const node = await this.resolver.resolve(this.resolve(path));
     if (!node) throw new NotFoundError(`No object found at "${path}"`);
