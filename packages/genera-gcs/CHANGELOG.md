@@ -1,5 +1,12 @@
 # @rocketbean/genera-gcs
 
+## 1.0.1
+
+### Patch Changes
+
+- Add a per-package README (shown on the npm page) and `repository` / `homepage` /
+  `bugs` metadata linking each package back to the GitHub repo.
+
 ## 1.0.0
 
 ### Major Changes

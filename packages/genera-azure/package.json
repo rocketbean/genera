@@ -1,6 +1,6 @@
 {
   "name": "@rocketbean/genera-azure",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Azure Blob Storage driver for Genera (isomorphic — Node + browser).",
   "type": "module",
   "sideEffects": false,

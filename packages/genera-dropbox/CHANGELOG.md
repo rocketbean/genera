@@ -1,5 +1,25 @@
 # @rocketbean/genera-dropbox
 
+## 1.1.0
+
+### Minor Changes
+
+- Tier 2 large-file / streamed uploads via provider chunked-upload sessions.
+
+  - **Core**: `chunkBytes(data, size)` helper — slices buffers and incrementally
+    re-chunks `ReadableStream`s without buffering the whole payload.
+  - **Dropbox**: upload sessions (start → append → finish) for `ReadableStream`
+    inputs and buffers ≥ 150 MB; true streaming.
+  - **OneDrive**: `createUploadSession` + ranged chunk PUTs for streams and buffers
+    ≥ 4 MB.
+  - **Google Drive**: `ReadableStream` inputs pipe straight to the SDK's resumable
+    upload (no full buffering).
+  - **Box**: chunked upload sessions (per-part + whole-file SHA-1) for streams and
+    large buffers.
+
+  Each driver gains a `chunkSize` option. Backward compatible — small buffered
+  uploads keep the single-shot path.
+
 ## 1.0.0
 
 ### Major Changes

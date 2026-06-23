@@ -1,6 +1,6 @@
 {
   "name": "@rocketbean/genera",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "One API for every cloud storage provider. A driver-based, provider-agnostic, isomorphic storage layer for TypeScript.",
   "type": "module",
   "sideEffects": false,

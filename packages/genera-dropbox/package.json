@@ -1,6 +1,6 @@
 {
   "name": "@rocketbean/genera-dropbox",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Dropbox storage driver for Genera (isomorphic — Node + browser).",
   "type": "module",
   "sideEffects": false,
